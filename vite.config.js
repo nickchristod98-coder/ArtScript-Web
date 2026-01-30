@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
-  base: './', // Χρησιμοποιούμε σχετική διαδρομή για να βρίσκει τα assets παντού
+  base: '/ArtScript-Web/', // Χρησιμοποιούμε σχετική διαδρομή για να βρίσκει τα assets παντού
   plugins: [vue()],
   resolve: {
     alias: {
