@@ -1,0 +1,17 @@
+# Τοπικές ρυθμίσεις λειτουργικού συστήματος
+.DS_Store
+Thumbs.db
+
+# Φάκελοι εξαρτήσεων (αν χρησιμοποιείς npm)
+node_modules/
+
+# Αρχεία που περιέχουν κωδικούς ή API keys (ΠΟΛΥ ΣΗΜΑΝΤΙΚΟ)
+.env
+config.js
+
+# Προσωρινά αρχεία και logs
+npm-debug.log*
+*.log
+.vscode/
+
+Photos_USE/
