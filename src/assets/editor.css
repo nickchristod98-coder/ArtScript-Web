@@ -1,0 +1,78 @@
+/* Core Screenplay Formatting - extracted from your styles.css */
+.script-editor-container {
+  background-color: #f0f0f0;
+  padding: 40px 20px;
+  display: flex;
+  justify-content: center;
+  min-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+body.dark-mode .script-editor-container {
+  background-color: #1a1a1a;
+}
+
+.editor-page {
+  width: 100%;
+  max-width: 794px; /* A4 Width */
+  background: white;
+  min-height: 1123px; /* A4 Height */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  padding: 72px 90px 72px 72px; /* Standard Screenplay Margins */
+  position: relative;
+}
+
+body.dark-mode .editor-page {
+  background-color: #1e1e1e;
+  color: #e0e0e0;
+}
+
+/* Typography */
+.script-line {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12pt;
+  line-height: 1.2;
+  margin-bottom: 0;
+  min-height: 1.2em;
+  outline: none;
+  white-space: pre-wrap;
+  display: flex;
+}
+
+/* Element Types logic from your original CSS */
+.script-line[data-type='scene-heading'] {
+  font-weight: bold;
+  text-transform: uppercase;
+  margin-top: 24pt;
+  margin-bottom: 12pt;
+}
+
+.script-line[data-type='action'] {
+  margin-bottom: 12pt;
+}
+
+.script-line[data-type='character'] {
+  margin-top: 12pt;
+  margin-left: 200px; /* Adjusted for Vue containment */
+  width: 300px;
+  text-transform: uppercase;
+}
+
+.script-line[data-type='dialogue'] {
+  margin-left: 110px;
+  margin-right: 110px;
+  margin-bottom: 12pt;
+}
+
+.script-line[data-type='parenthetical'] {
+  margin-left: 160px;
+  margin-right: 160px;
+  font-style: italic;
+}
+
+.script-line[data-type='transition'] {
+  text-align: right;
+  margin-top: 12pt;
+  margin-bottom: 12pt;
+  text-transform: uppercase;
+}

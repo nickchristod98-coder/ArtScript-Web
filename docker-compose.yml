@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: artscript-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: artscript
+      POSTGRES_PASSWORD: artscript_secure_password_change_in_production
+      POSTGRES_DB: artscript
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - artscript-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U artscript']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: artscript-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://artscript:artscript_secure_password_change_in_production@postgres:5432/artscript
+      JWT_SECRET: your_super_secret_jwt_key_change_in_production_min_32_chars
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://localhost:8080
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - artscript-network
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (Vite/Vue)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: artscript-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:3000/api
+    ports:
+      - '8080:80'
+    depends_on:
+      - backend
+    networks:
+      - artscript-network
+
+networks:
+  artscript-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
