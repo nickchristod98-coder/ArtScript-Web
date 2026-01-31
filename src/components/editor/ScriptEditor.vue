@@ -268,10 +268,8 @@ const calculatePageBreaks = () => {
 // Handle line content change
 const handleLineInput = (event, lineId, index) => {
   let newContent = event.target.innerText
-  // Remove zero-width space if present
-  if (newContent === '\u200B') {
-    newContent = ''
-  }
+  // Strip zero-width space (used for focusable empty lines) so "int." on first line is detected as scene heading
+  newContent = newContent.replace(/\u200B/g, '')
 
   // Prevent reactivity loop
   isExternalUpdate.value = false
@@ -482,7 +480,8 @@ const autoDetectType = (lineId, content) => {
   // Disable auto-detection for Book format (Word-like behavior)
   if (isBookFormat.value) return false
 
-  const trimmed = content.trim()
+  // Strip zero-width space (first line may have it for focusability) so "int."/ "ext." etc. are detected
+  const trimmed = content.replace(/\u200B/g, '').trim()
   const upper = trimmed.toUpperCase()
   const lower = trimmed.toLowerCase()
 
