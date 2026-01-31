@@ -59,9 +59,6 @@
 
             <div class="dropdown-divider"></div>
 
-            <button class="dropdown-item" @click="store.showPreviewDialog = true">
-              <i class="pi pi-eye"></i> Preview
-            </button>
             <button class="dropdown-item" @click="store.showPDFDialog = true">
               <i class="pi pi-file-pdf"></i> Export PDF
             </button>
@@ -128,7 +125,7 @@
 
             <div class="dropdown-divider"></div>
 
-            <button class="dropdown-item" @click="store.showTrainingDialog = true; isFileMenuOpen = false">
+            <button class="dropdown-item dropdown-item-disabled" disabled>
               <i class="pi pi-book"></i> Training
             </button>
             <button class="dropdown-item" @click="showShortcuts">
@@ -521,6 +518,18 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+/* Disabled dropdown items */
+.dropdown-item-disabled,
+.dropdown-item:disabled {
+  color: #999 !important;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+:global(body.dark-mode) .dropdown-item-disabled,
+:global(body.dark-mode) .dropdown-item:disabled {
+  color: #666 !important;
 }
 
 /* .asxpro Pro: greyed out, coming soon */
