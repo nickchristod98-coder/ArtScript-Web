@@ -31,9 +31,25 @@
             <button class="dropdown-item" @click="emitOpen">
               <i class="pi pi-folder-open"></i> Open
             </button>
-            <button class="dropdown-item" @click="store.exportProjectAsJSON()">
-              <i class="pi pi-save"></i> Save
-            </button>
+            <div class="dropdown-item-with-submenu">
+              <button class="dropdown-item" @click.stop>
+                <i class="pi pi-save"></i> Save as..
+                <i class="pi pi-angle-right" style="float: right; margin-top: 2px;"></i>
+              </button>
+              <div class="dropdown-submenu">
+                <button
+                  class="dropdown-item dropdown-item-asxpro-pro"
+                  title=".asxpro coming soon"
+                  @click="openAsxproProPopup"
+                >
+                  <span>.asxpro</span>
+                  <span class="asxpro-pro-badge">pro</span>
+                </button>
+                <button class="dropdown-item" @click="saveAsFountain">
+                  .fountain
+                </button>
+              </div>
+            </div>
 
             <div class="dropdown-divider"></div>
 
@@ -48,9 +64,6 @@
             </button>
             <button class="dropdown-item" @click="store.showPDFDialog = true">
               <i class="pi pi-file-pdf"></i> Export PDF
-            </button>
-            <button class="dropdown-item" @click="store.exportToFountain()">
-              <i class="pi pi-download"></i> Export Fountain
             </button>
 
             <div class="dropdown-divider"></div>
@@ -227,6 +240,38 @@
         <button type="button" class="book-coming-soon-close" @click="showBookComingSoon = false">OK</button>
       </div>
     </div>
+
+    <!-- .asxpro Pro coming soon popup -->
+    <div v-if="showAsxproProPopup" class="book-coming-soon-overlay" @click.self="showAsxproProPopup = false">
+      <div class="book-coming-soon-dialog">
+        <h2 class="book-coming-soon-title">ArtScript <strong class="asxpro-title-clickable" @click.stop="openAsxproCodePopup">.asxpro</strong></h2>
+        <p class="book-coming-soon-text">
+          The .asxpro extension lets you save whole episodes and seasons of a show in one project. It's coming very soon to the Pro version.
+        </p>
+        <button type="button" class="book-coming-soon-close" @click="showAsxproProPopup = false">OK</button>
+      </div>
+    </div>
+
+    <!-- Secret code popup for .asxpro save -->
+    <div v-if="showAsxproCodePopup" class="book-coming-soon-overlay" @click.self="closeAsxproCodePopup">
+      <div class="book-coming-soon-dialog asxpro-code-dialog">
+        <h2 class="book-coming-soon-title asxpro-code-title">
+          <i class="pi pi-lock"></i>
+        </h2>
+        <input
+          v-model="asxproCodeInput"
+          type="password"
+          class="asxpro-code-input"
+          placeholder="Code"
+          @keyup.enter="submitAsxproCode"
+        />
+        <p v-if="asxproCodeError" class="asxpro-code-error">{{ asxproCodeError }}</p>
+        <div class="asxpro-code-actions">
+          <button type="button" class="asxpro-code-cancel" @click="closeAsxproCodePopup">Cancel</button>
+          <button type="button" class="book-coming-soon-close asxpro-code-submit" @click="submitAsxproCode">Unlock</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -241,6 +286,12 @@ const router = useRouter()
 
 const isFileMenuOpen = ref(false)
 const showBookComingSoon = ref(false)
+const showAsxproProPopup = ref(false)
+const showAsxproCodePopup = ref(false)
+const asxproCodeInput = ref('')
+const asxproCodeError = ref('')
+
+const ASXPRO_SECRET_CODE = 'TV98SCRIPT6'
 
 const stats = computed(() => store.scriptStats)
 
@@ -324,6 +375,38 @@ const createNewProject = (format) => {
 
 const emitOpen = () => {
   document.getElementById('hidden-file-input')?.click()
+  isFileMenuOpen.value = false
+}
+
+const openAsxproProPopup = () => {
+  showAsxproProPopup.value = true
+  isFileMenuOpen.value = false
+}
+
+const openAsxproCodePopup = () => {
+  showAsxproProPopup.value = false
+  showAsxproCodePopup.value = true
+  asxproCodeInput.value = ''
+  asxproCodeError.value = ''
+}
+
+const closeAsxproCodePopup = () => {
+  showAsxproCodePopup.value = false
+  asxproCodeInput.value = ''
+  asxproCodeError.value = ''
+}
+
+const submitAsxproCode = () => {
+  if (asxproCodeInput.value.trim() === ASXPRO_SECRET_CODE) {
+    store.exportProjectAsJSON()
+    closeAsxproCodePopup()
+  } else {
+    asxproCodeError.value = 'Invalid code'
+  }
+}
+
+const saveAsFountain = () => {
+  store.exportToFountain()
   isFileMenuOpen.value = false
 }
 
@@ -440,6 +523,38 @@ onUnmounted(() => {
   justify-content: space-between;
 }
 
+/* .asxpro Pro: greyed out, coming soon */
+.dropdown-item-asxpro-pro {
+  color: #999 !important;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.dropdown-item-asxpro-pro:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #666 !important;
+}
+.asxpro-pro-badge {
+  font-size: 12px;
+  color: #999;
+  margin-left: auto;
+}
+.dropdown-item-asxpro-pro:hover .asxpro-pro-badge {
+  color: #666;
+}
+:global(body.dark-mode) .dropdown-item-asxpro-pro {
+  color: #666 !important;
+}
+:global(body.dark-mode) .dropdown-item-asxpro-pro:hover {
+  color: #888 !important;
+  background: rgba(255, 255, 255, 0.06);
+}
+:global(body.dark-mode) .asxpro-pro-badge {
+  color: #666;
+}
+:global(body.dark-mode) .dropdown-item-asxpro-pro:hover .asxpro-pro-badge {
+  color: #888;
+}
+
 /* Book option: greyed out, coming soon */
 .dropdown-item-coming-soon {
   color: #999 !important;
@@ -517,6 +632,78 @@ onUnmounted(() => {
 :global(body.dark-mode) .book-coming-soon-text {
   color: #b0b0b0;
 }
+/* Hidden clickable .asxpro in popup title - no visual indicator */
+.asxpro-title-clickable {
+  cursor: pointer;
+}
+
+/* Secret code popup */
+.asxpro-code-dialog {
+  max-width: 320px;
+}
+.asxpro-code-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.asxpro-code-title .pi {
+  font-size: 24px;
+}
+.asxpro-code-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  margin: 16px 0 12px 0;
+  box-sizing: border-box;
+}
+.asxpro-code-input:focus {
+  outline: none;
+  border-color: #666;
+}
+.asxpro-code-error {
+  margin: -8px 0 12px 0;
+  font-size: 13px;
+  color: #c00;
+}
+.asxpro-code-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+.asxpro-code-cancel {
+  flex: 1;
+  padding: 10px 16px;
+  font-size: 14px;
+  background: #f0f0f0;
+  color: #333;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.asxpro-code-cancel:hover {
+  background: #e5e5e5;
+}
+.asxpro-code-submit {
+  flex: 1;
+}
+:global(body.dark-mode) .asxpro-code-input {
+  background: #1a1a1a;
+  border-color: #555;
+  color: #e0e0e0;
+}
+:global(body.dark-mode) .asxpro-code-input:focus {
+  border-color: #888;
+}
+:global(body.dark-mode) .asxpro-code-cancel {
+  background: #333;
+  color: #e0e0e0;
+}
+:global(body.dark-mode) .asxpro-code-cancel:hover {
+  background: #444;
+}
+
 :global(body.dark-mode) .book-coming-soon-close {
   background: #444;
   color: #e0e0e0;
