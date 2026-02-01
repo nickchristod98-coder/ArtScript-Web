@@ -1,0 +1,325 @@
+/* Mobile styles - screens smaller than 768px */
+
+/* Backdrop when sidebar/drawer is open on mobile */
+.mobile-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 999;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  /* Main container: 100dvh for visible screen (keyboard-aware) */
+  .app-container {
+    height: 100dvh !important;
+  }
+
+  /* Editor area: only text scrolls */
+  .editor-area {
+    overflow-y: auto !important;
+  }
+
+  /* Scenes & Characters: popup overlay (centered modal for phone) */
+  .scenes-popup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .scenes-popup {
+    width: 100%;
+    max-width: min(420px, 92vw);
+    max-height: min(85vh, 680px);
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: scenesPopupIn 0.25s ease;
+  }
+
+  @keyframes scenesPopupIn {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  .scenes-popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+    flex-shrink: 0;
+  }
+
+  .scenes-popup-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+  }
+
+  .scenes-popup-close {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    line-height: 1;
+    color: #666;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .scenes-popup-close:active {
+    background: rgba(0, 0, 0, 0.06);
+  }
+
+  .scenes-popup-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .scenes-popup-body .scenes-popup-sidebar.sidebar.scene-navigator {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 200px !important;
+    box-shadow: none !important;
+    animation: none !important;
+  }
+
+  :global(body.dark-mode) .scenes-popup {
+    background: #2a2a2a;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+
+  :global(body.dark-mode) .scenes-popup-header {
+    border-bottom-color: #444;
+  }
+
+  :global(body.dark-mode) .scenes-popup-title {
+    color: #e0e0e0;
+  }
+
+  :global(body.dark-mode) .scenes-popup-close {
+    color: #aaa;
+  }
+
+  :global(body.dark-mode) .scenes-popup-close:active {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Main content: single column, full width */
+  .main-content {
+    flex-direction: column !important;
+  }
+
+  .editor-area {
+    width: 100% !important;
+    padding: 8px 4px 52px 4px !important; /* bottom padding for fixed toolbar */
+    flex-direction: column !important;
+  }
+
+  .editor-area .editor-container {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Editor: reduce min-width, adjust padding for small screens */
+  .editor-container {
+    padding: 8px 4px !important;
+  }
+
+  .editor-wrapper {
+    min-width: 100% !important;
+    width: 100% !important;
+    padding: 24px 16px 24px 16px !important;
+    box-shadow: 0 1px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .script-editor {
+    font-size: 16px !important; /* 16px+ prevents iOS auto-zoom on focus */
+    line-height: 1.4;
+  }
+
+  .script-line {
+    min-height: 1.4em !important;
+  }
+
+  .line-content {
+    min-height: 1.4em !important;
+  }
+
+  /* Reduce scene number offset on mobile */
+  .scene-number {
+    left: -36px !important;
+    width: 32px !important;
+    font-size: 10pt !important;
+  }
+
+  /* Character/dialogue margins - scale down for mobile */
+  .line-character {
+    margin-left: 120px !important;
+  }
+
+  .line-dialogue {
+    margin-left: 80px !important;
+    margin-right: 80px !important;
+  }
+
+  .line-parenthetical {
+    margin-left: 100px !important;
+    margin-right: 100px !important;
+  }
+
+  /* Right sidebar (episodes) - overlay on mobile */
+  .sidebar.episode-navigator {
+    position: fixed !important;
+    right: 0;
+    top: 0;
+    height: 100vh !important;
+    width: 260px !important;
+    max-width: 85vw;
+    z-index: 1000;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
+    animation: mobileEpisodeNavSlideIn 0.3s ease;
+  }
+
+  @keyframes mobileEpisodeNavSlideIn {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+
+  /* Toolbar adjustments - mobile: only dropdown + title visible */
+  .toolbar {
+    padding: 8px 12px !important;
+  }
+
+  .toolbar-left {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .app-title-inline.clickable-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .toolbar-center .project-name-input {
+    min-width: 120px !important;
+    font-size: 16px !important; /* 16px+ prevents iOS auto-zoom on focus */
+  }
+
+  .stats-display {
+    display: none !important;
+  }
+
+  .undo-redo-group {
+    margin-left: 8px !important;
+  }
+
+  /* Formatting toolbar position */
+  .formatting-toolbar-wrapper {
+    left: 50% !important;
+  }
+
+  .autosave-indicator {
+    bottom: auto !important;
+    top: max(12px, env(safe-area-inset-top)) !important;
+    right: 12px !important;
+    font-size: 12px !important;
+    padding: 6px 12px !important;
+  }
+
+  /* Title Page Dialog - fit phone screen */
+  .title-page-dialog .p-dialog,
+  .p-dialog-mask.title-page-dialog .p-dialog {
+    width: calc(100vw - 24px) !important;
+    max-width: none !important;
+    max-height: 85vh !important;
+    margin: 12px !important;
+    border-radius: 16px !important;
+  }
+
+  .title-page-dialog .p-dialog-content {
+    max-height: 60vh !important;
+    overflow-y: auto !important;
+    padding: 16px 20px !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .title-page-dialog .p-dialog-header {
+    padding: 16px 20px !important;
+    flex-shrink: 0;
+  }
+
+  .title-page-dialog .p-dialog-title {
+    font-size: 18px !important;
+  }
+
+  .title-page-dialog .p-dialog-footer {
+    padding: 12px 20px 16px !important;
+    padding-bottom: max(16px, env(safe-area-inset-bottom)) !important;
+    flex-shrink: 0;
+  }
+
+  .title-page-dialog .p-dialog-footer .p-button {
+    width: 100% !important;
+    min-height: 44px !important;
+    font-size: 16px !important;
+  }
+
+  .title-page-dialog .field {
+    margin-bottom: 1.25rem !important;
+  }
+
+  .title-page-dialog .field label {
+    font-size: 14px !important;
+  }
+
+  .title-page-dialog .p-inputtext,
+  .title-page-dialog .p-inputtextarea {
+    min-height: 44px !important;
+    font-size: 16px !important;
+    padding: 10px 14px !important;
+  }
+
+  .title-page-dialog .p-inputtextarea {
+    min-height: 80px !important;
+  }
+
+  /* Home/Welcome page mobile layout is in HomeView.vue */
+}

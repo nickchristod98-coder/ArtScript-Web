@@ -762,6 +762,11 @@ export const useProjectStore = defineStore('project', {
     // Import from Fountain format
     importProjectFromFountain(fountainContent, fileName) {
       try {
+        // Strip BEAT metadata block (/* ... BEAT: ... END_BEAT */) - app settings, not screenplay text
+        fountainContent = fountainContent
+          .replace(/\/\*[\s\S]*?BEAT:[\s\S]*?END_BEAT\s*\*\//g, '')
+          .trim()
+
         const lines = fountainContent.split('\n')
         const newId = this.createProject('Film')
         const project = this.projects.find((p) => p.id === newId)

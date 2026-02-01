@@ -1,7 +1,7 @@
 <!-- src/views/WorkspaceView.vue - ENHANCED -->
 <template>
   <div class="app-container" :class="{ 'focus-mode': focusMode }">
-    <AppHeader @open-about="showAboutDialog = true" />
+    <AppHeader :isMobile="isMobile" @open-about="showAboutDialog = true" />
 
     <!-- Auto-save indicator -->
     <div v-if="lastSaved" class="autosave-indicator">
@@ -9,10 +9,38 @@
       Saved {{ formatTime(lastSaved) }}
     </div>
 
+    <!-- Mobile backdrop when sidebar/drawer or popup is open -->
+    <div
+      v-if="isMobile && (store.sceneNavVisible || store.episodeNavVisible)"
+      class="mobile-sidebar-backdrop"
+      @click="closeMobileSidebars"
+    />
+
+    <!-- Mobile: Scenes & Characters as centered popup -->
+    <div
+      v-if="isMobile && store.sceneNavVisible"
+      class="scenes-popup-overlay"
+      @click.self="closeMobileSidebars"
+    >
+      <div class="scenes-popup">
+        <div class="scenes-popup-header">
+          <h3 class="scenes-popup-title">Scenes & Characters</h3>
+          <button class="scenes-popup-close" @click="closeMobileSidebars" aria-label="Close">×</button>
+        </div>
+        <div class="scenes-popup-body">
+          <SideBar
+            class="scenes-popup-sidebar"
+            @scene-selected="onSceneSelectedFromPopup"
+            @find-character="onFindCharacterFromPopup"
+          />
+        </div>
+      </div>
+    </div>
+
     <div class="main-content">
-      <!-- Left Sidebar - Scenes & Characters -->
+      <!-- Left Sidebar - Scenes & Characters (desktop only) -->
       <SideBar
-        v-if="store.sceneNavVisible"
+        v-if="!isMobile && store.sceneNavVisible"
         @scene-selected="scrollToScene"
         @find-character="findCharacter"
       />
@@ -65,7 +93,7 @@
         >
           <span class="arrow-icon">{{ store.episodeNavVisible ? '‹' : '›' }}</span>
         </button>
-        <ScriptEditor ref="editorRef" @highlight-search="handleSearchHighlight" />
+        <ScriptEditor ref="editorRef" :isMobile="isMobile" @highlight-search="handleSearchHighlight" />
       </main>
 
       <!-- Right Sidebar - Episodes (TV Show) -->
@@ -169,7 +197,7 @@
       ref="fileInput"
       @change="handleImport"
       style="display: none"
-      accept=".asxpro,.fountain"
+      :accept="isMobile ? 'application/json,text/plain,.asxpro,.fountain,.fnt' : '.asxpro,.fountain'"
     />
   </div>
 </template>
@@ -200,6 +228,16 @@ import ShortcutsDialog from '@/components/dialogs/ShortcutsDialog.vue'
 
 const store = useProjectStore()
 const editorRef = ref(null)
+const isMobile = ref(typeof window !== 'undefined' && window.innerWidth < 768)
+
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768
+}
+
+const closeMobileSidebars = () => {
+  store.sceneNavVisible = false
+  store.episodeNavVisible = false
+}
 const fileInput = ref(null)
 const focusMode = ref(false)
 const findReplaceMode = ref('find')
@@ -317,8 +355,18 @@ const openFindReplace = (e) => {
 
 // Scroll to scene
 const scrollToScene = (sceneIndex) => {
-  // Implementation depends on editor structure
-  console.log('Scroll to scene:', sceneIndex)
+  window.dispatchEvent(new CustomEvent('scroll-to-scene', { detail: { lineIndex: sceneIndex } }))
+}
+
+// Mobile popup: close when scene selected (SideBar dispatches scroll-to-scene globally)
+const onSceneSelectedFromPopup = () => {
+  closeMobileSidebars()
+}
+
+// Mobile popup: find character and close
+const onFindCharacterFromPopup = (characterName) => {
+  findCharacter(characterName)
+  closeMobileSidebars()
 }
 
 // Find character in script
@@ -425,6 +473,13 @@ const sendEmail = async () => {
 }
 
 onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+  if (isMobile.value) {
+    store.sceneNavVisible = false
+    store.episodeNavVisible = false
+  }
+
   window.addEventListener('open-pdf-dialog', openPDF)
   window.addEventListener('open-title-dialog', openTitle)
   window.addEventListener('open-find-replace', openFindReplace)
@@ -445,6 +500,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
   window.removeEventListener('open-pdf-dialog', openPDF)
   window.removeEventListener('open-title-dialog', openTitle)
   window.removeEventListener('open-find-replace', openFindReplace)

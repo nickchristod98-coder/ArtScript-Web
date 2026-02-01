@@ -3,6 +3,7 @@
     v-model:visible="visible"
     header="Title Page Editor"
     :modal="true"
+    class="title-page-dialog"
     :style="{ width: '50vw' }"
   >
     <div class="field-container">

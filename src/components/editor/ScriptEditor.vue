@@ -1,6 +1,6 @@
 <!-- SimplifiedScriptEditor.vue -->
 <template>
-  <div class="editor-container" ref="containerRef" :class="{ 'full-page-view': store.fullPageView }">
+  <div class="editor-container" ref="containerRef" :class="{ 'full-page-view': store.fullPageView, 'has-mobile-force-bar': props.isMobile }">
     <div class="editor-wrapper">
       <div
         class="script-editor"
@@ -35,6 +35,21 @@
             ></div>
           </div>
         </div>
+    </div>
+    <!-- Mobile: Fixed toolbar - follows keyboard via Visual Viewport API -->
+    <div v-if="props.isMobile" class="mobile-toolbar" :style="mobileToolbarStyle">
+      <button class="force-btn force-btn-square" @click="forceLineTypeWithFocus('scene-heading', 'INT. ')" title="INT. (scene heading)">
+        INT.
+      </button>
+      <button class="force-btn force-btn-square" @click="forceLineTypeWithFocus('scene-heading', 'EXT. ')" title="EXT. (scene heading)">
+        EXT.
+      </button>
+      <button class="force-btn" @click="forceLineTypeWithFocus('character')" title="Force Character">
+        CHAR.
+      </button>
+      <button class="force-btn" @click="forceLineTypeWithFocus('dialogue')" title="Force Dialogue">
+        Dialogue
+      </button>
     </div>
   </div>
 
@@ -121,6 +136,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  isMobile: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const store = useProjectStore()
@@ -146,6 +165,17 @@ const pendingAnnotation = ref({ lineId: null, anchorText: '' })
 const notePopoverTextarea = ref(null)
 const annotationRects = ref([]) // { id, left, top, width, height, annotation }
 const floatingNote = ref(null) // { x, y, anchorText, noteContent, id } when showing floating card
+
+// Visual Viewport: toolbar bottom offset (follows keyboard)
+const toolbarBottomOffset = ref(0)
+const mobileToolbarStyle = computed(() => ({
+  bottom: toolbarBottomOffset.value + 'px',
+}))
+const updateToolbarBottomOffset = () => {
+  if (typeof window !== 'undefined' && window.visualViewport) {
+    toolbarBottomOffset.value = Math.max(0, window.innerHeight - window.visualViewport.height)
+  }
+}
 
 // Computed properties
 const isBookFormat = computed(() => store.activeProject?.format === 'Book')
@@ -868,6 +898,18 @@ const moveCursorToEnd = (element) => {
   selection.addRange(range)
 }
 
+// Place cursor at end and focus (for INT./EXT. and similar - ensures cursor stays at end after content update)
+const placeCursorAtEnd = (element) => {
+  if (!element) return
+  const range = document.createRange()
+  const selection = window.getSelection()
+  range.selectNodeContents(element)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  element.focus()
+}
+
 // Restore cursor/selection in a contenteditable by character offsets (used after scene-heading conversion / re-render)
 const restoreCursorInElement = (element, startOffset, endOffset) => {
   if (!element) return
@@ -1232,24 +1274,64 @@ watch(
   },
 )
 
+// Transform content when forcing line type (e.g. from mobile toolbar)
+function getTransformedContentForType(content, type) {
+  const trimmed = (content || '').trim()
+  if (type === 'chapter-title') return content
+  if (type === 'scene-heading') {
+    if (!trimmed) return 'INT. - DAY'
+    if (!isSceneHeadingStart(trimmed)) return 'INT. ' + trimmed.toUpperCase()
+  }
+  if (type === 'character') {
+    return trimmed ? trimmed.toUpperCase() : trimmed
+  }
+  if (type === 'parenthetical') {
+    if (!trimmed) return '( )'
+    if (!trimmed.startsWith('(') || !trimmed.endsWith(')')) return '(' + trimmed + ')'
+  }
+  return content
+}
+
+// Dispatch force line type (for mobile toolbar buttons)
+const forceLineTypeWithFocus = (type, contentOverride) => {
+  const detail = { type, restoreFocus: true }
+  if (contentOverride != null) detail.contentOverride = contentOverride
+  window.dispatchEvent(new CustomEvent('force-line-type', { detail }))
+}
+
 // Force line type handler
 const handleForceLineType = (event) => {
-  const { type } = event.detail
+  const { type, restoreFocus, contentOverride } = event.detail || {}
+  const resolvedType = isBookFormat.value && type === 'scene-heading' ? 'chapter-title' : type
   const currentLine = lines.value[currentLineIndex.value]
   
   if (currentLine) {
     store.pushToHistory()
-    store.updateLine(currentLine.id, currentLine.content, type)
+    const newContent = contentOverride != null
+      ? contentOverride
+      : getTransformedContentForType(currentLine.content, resolvedType)
+    store.updateLine(currentLine.id, newContent, resolvedType)
+    
+    // Sync DOM for contenteditable
+    nextTick(() => {
+      const el = lineRefs.value[currentLineIndex.value]
+      if (el && el.innerText !== newContent) el.innerText = newContent
+      if (restoreFocus && el) {
+        nextTick(() => {
+          placeCursorAtEnd(el)
+        })
+      }
+    })
     
     // If forced to character, update (CONT'D) status
-    if (type === 'character') {
+    if (resolvedType === 'character') {
       nextTick(() => {
         updateContdStatus(currentLine.id, currentLineIndex.value)
       })
     }
     
     // If forced to scene-heading, reset selected scene to highlight last scene
-    if (type === 'scene-heading') {
+    if (resolvedType === 'scene-heading' || resolvedType === 'chapter-title') {
       store.selectedSceneId = null
     }
   }
@@ -1597,6 +1679,13 @@ onMounted(() => {
       selectionStart.value = { lineIndex: null, offset: null, element: null }
     }
   })
+
+  // Visual Viewport API: make mobile toolbar follow keyboard
+  if (props.isMobile && window.visualViewport) {
+    updateToolbarBottomOffset()
+    window.visualViewport.addEventListener('resize', updateToolbarBottomOffset)
+    window.visualViewport.addEventListener('scroll', updateToolbarBottomOffset)
+  }
 })
 
 // Cleanup
@@ -1611,6 +1700,10 @@ onUnmounted(() => {
   window.removeEventListener('scroll-to-scene', handleScrollToScene)
   document.removeEventListener('mousemove', handleGlobalMouseMove)
   document.removeEventListener('click', closeContextMenuAndPopoverOnClickOutside)
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', updateToolbarBottomOffset)
+    window.visualViewport.removeEventListener('scroll', updateToolbarBottomOffset)
+  }
 })
 </script>
 
@@ -2150,5 +2243,72 @@ onUnmounted(() => {
   background: #4a1a1a;
   border-color: #f87171;
   color: #fca5a5;
+}
+
+/* Mobile: Toolbar at bottom - sticks to top of keyboard */
+.editor-container.has-mobile-force-bar {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.mobile-toolbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  z-index: 9999;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: transparent;
+}
+
+.mobile-toolbar .force-btn-square {
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-toolbar .force-btn {
+  height: 32px;
+  min-width: 120px;
+  padding: 0 24px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.mobile-toolbar .force-btn:active {
+  transform: scale(0.98);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+:global(body.dark-mode) .mobile-toolbar .force-btn {
+  color: #e0e0e0;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+:global(body.dark-mode) .mobile-toolbar .force-btn:active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Square buttons: override min-width from .force-btn */
+.mobile-toolbar .force-btn.force-btn-square {
+  width: 46px !important;
+  min-width: 46px !important;
+  height: 32px !important;
+  padding: 0 !important;
 }
 </style>

@@ -1,6 +1,10 @@
 <template>
-  <div class="launch-menu-overlay" :style="{ '--scale': scale }">
-    <!-- Title: independent and centered initially; when slid, trapped inside left half via clip wrapper -->
+  <div
+    class="launch-menu-overlay"
+    :class="{ 'title-slid': titleSlid }"
+    :style="{ '--scale': scale }"
+  >
+    <!-- Title: center initially; on desktop slides left, on mobile slides to top -->
     <div
       class="title-clip-wrapper"
       :class="{ 'title-slid': titleSlid }"
@@ -13,26 +17,36 @@
           'title-visible': titleVisible
         }"
       >
-      <h1 class="launch-menu-title">
-        <span class="typed-text">{{ displayedText }}</span>
-        <span class="cursor-marker"></span>
-      </h1>
-      <p
-        class="title-credit"
-        :class="{ 'visible': showCredit }"
-      >
-        Created by Nick Christod
-      </p>
+        <h1 class="launch-menu-title">
+          <span class="typed-text">{{ displayedText }}</span>
+          <span class="cursor-marker"></span>
+        </h1>
+        <p
+          class="title-credit"
+          :class="{ 'visible': showCredit }"
+        >
+          Created by Nick Christod
+        </p>
       </div>
     </div>
 
-    <!-- Containers: reveal when title starts sliding; left container aligns with clip zone -->
+    <!-- Options container: desktop = two columns; mobile = single column with title inside -->
     <div class="launch-menu-container" :class="{ 'visible': containersVisible }">
-      <!-- Left Container: overflow hidden when title slides in -->
+      <!-- Mobile-only title: inside container, at top -->
+      <div class="mobile-title-in-container" :class="{ 'title-visible': titleVisible }">
+        <h1 class="launch-menu-title mobile-title">
+          <span class="typed-text">{{ displayedText }}</span>
+          <span class="cursor-marker"></span>
+        </h1>
+        <p class="title-credit" :class="{ 'visible': showCredit }">
+          Created by Nick Christod
+        </p>
+      </div>
+      <!-- Left Container: desktop only, overflow hidden when title slides in -->
       <div class="launch-menu-left" :class="{ 'clip-title': titleSlid }">
       </div>
 
-      <!-- Right Container: Actions -->
+      <!-- Right Container: Actions (desktop) / Full content (mobile) -->
       <div class="launch-menu-right">
         <div class="launch-menu-section">
           <h2>Create New Project</h2>
@@ -59,14 +73,14 @@
             ref="fileInput"
             @change="handleImport"
             style="display: none"
-            accept=".asxpro,.fountain"
+            :accept="isMobile ? 'application/json,text/plain,.asxpro,.fountain,.fnt' : '.asxpro,.fountain'"
           />
           <button class="open-file-btn" @click="$refs.fileInput.click()">
             <i class="pi pi-folder-open"></i> Open From File
           </button>
         </div>
 
-        <div class="launch-menu-section">
+        <div class="launch-menu-section recent-projects-section">
           <h2>Recent Projects</h2>
           <div class="recent-projects-list">
             <div
@@ -103,6 +117,7 @@ const displayedText = ref('')
 const isTyping = ref(true)
 const titleVisible = ref(false)
 const titleSlid = ref(false)
+const isMobile = ref(typeof window !== 'undefined' && window.innerWidth <= 768)
 const containersVisible = ref(false)
 const showCredit = ref(false)
 
@@ -114,18 +129,24 @@ const scale = ref(1)
 const updateScale = () => {
   const scaleX = window.innerWidth / BASE_WIDTH
   const scaleY = window.innerHeight / BASE_HEIGHT
-  // Use the smaller scale to ensure everything fits
-  scale.value = Math.min(scaleX, scaleY, 1.2) // Cap at 1.2 to avoid giant sizes
+  scale.value = Math.min(scaleX, scaleY, 1.2)
+}
+
+const handleResize = () => {
+  updateScale()
+  const mobile = window.innerWidth <= 768
+  isMobile.value = mobile
+  if (mobile) containersVisible.value = true
 }
 
 onMounted(() => {
   recentProjects.value = store.loadRecentProjects()
-  
-  // Set initial scale
+  isMobile.value = window.innerWidth <= 768
+  if (isMobile.value) containersVisible.value = true
+
   updateScale()
-  window.addEventListener('resize', updateScale)
-  
-  // Show title first
+  window.addEventListener('resize', handleResize)
+
   setTimeout(() => {
     titleVisible.value = true
     startTypingAnimation()
@@ -133,7 +154,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', updateScale)
+  window.removeEventListener('resize', handleResize)
 })
 
 const startTypingAnimation = () => {
@@ -356,5 +377,141 @@ const handleImport = async (e) => {
 
 :deep(.recent-projects-list) {
   max-height: calc(180px * var(--scale));
+}
+
+/* Mobile title in container: hidden on desktop */
+:deep(.mobile-title-in-container) {
+  display: none;
+}
+
+/* Mobile: title inside container */
+@media (max-width: 768px) {
+  :deep(.launch-menu-overlay) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  /* Hide floating title on mobile */
+  :deep(.title-clip-wrapper) {
+    display: none !important;
+  }
+
+  /* Title inside container: centered with space at top */
+  :deep(.mobile-title-in-container) {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    width: 100%;
+    padding: 28px 0 24px;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+
+  :deep(.mobile-title-in-container.title-visible) {
+    opacity: 1;
+  }
+
+  :deep(.mobile-title-in-container .launch-menu-title) {
+    text-align: center !important;
+    white-space: nowrap;
+    font-size: 44px !important;
+  }
+
+  /* Blinking cursor on mobile */
+  :deep(.mobile-title-in-container .cursor-marker) {
+    height: 34px !important;
+    width: 2px !important;
+  }
+
+  :deep(.mobile-title-in-container .title-credit) {
+    text-align: center !important;
+    font-size: 12px !important;
+    align-self: center;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  @media (max-width: 380px) {
+    :deep(.mobile-title-in-container .launch-menu-title) {
+      font-size: 35px !important;
+    }
+  }
+
+  :deep(.launch-menu-container) {
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 420px !important;
+    align-items: center !important;
+  }
+
+  :deep(.launch-menu-left) {
+    display: none !important;
+  }
+
+  :deep(.launch-menu-right) {
+    width: 100% !important;
+    padding: 24px 24px 32px !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  :deep(.recent-projects-section) {
+    display: none !important;
+  }
+
+  /* Rest 40% smaller (60% of prior) */
+  :deep(.launch-menu-section) {
+    margin-bottom: 14px !important;
+    width: 100%;
+  }
+
+  :deep(.launch-menu-section h2) {
+    font-size: 17px !important;
+    margin-bottom: 14px !important;
+    text-align: center !important;
+  }
+
+  :deep(.launch-menu-formats) {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  :deep(.launch-format-btn) {
+    padding: 12px 14px !important;
+    min-height: 37px !important;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+    border-radius: 10px !important;
+  }
+
+  :deep(.format-icon) {
+    font-size: 25px !important;
+  }
+
+  :deep(.format-name) {
+    font-size: 23px !important;
+  }
+
+  :deep(.coming-soon) {
+    font-size: 14px !important;
+  }
+
+  :deep(.open-file-btn) {
+    padding: 12px 14px !important;
+    min-height: 37px !important;
+    font-size: 23px !important;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+    border-radius: 10px !important;
+    margin-top: 18px !important;
+  }
+
+  :deep(.open-file-btn .pi) {
+    font-size: 25px !important;
+  }
 }
 </style>

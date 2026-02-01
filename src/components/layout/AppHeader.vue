@@ -65,6 +65,34 @@
 
             <div class="dropdown-divider"></div>
 
+            <!-- Mobile: View & Navigation (dark, sidebars, undo) - Full Page View hidden on mobile -->
+            <template v-if="props.isMobile">
+              <button class="dropdown-item" @click="store.toggleDarkMode(); isFileMenuOpen = false">
+                <i class="pi pi-moon"></i>
+                {{ store.darkMode ? 'Light Mode' : 'Dark Mode' }}
+              </button>
+              <button class="dropdown-item" @click="store.sceneNavVisible = !store.sceneNavVisible; isFileMenuOpen = false">
+                <i class="pi pi-list"></i>
+                {{ store.sceneNavVisible ? 'Hide' : 'Show' }} Scenes & Characters
+              </button>
+              <button
+                v-if="isTVShow"
+                class="dropdown-item"
+                @click="store.episodeNavVisible = !store.episodeNavVisible; isFileMenuOpen = false"
+              >
+                <i class="pi pi-th-large"></i>
+                {{ store.episodeNavVisible ? 'Hide' : 'Show' }} Episodes
+              </button>
+              <button
+                class="dropdown-item"
+                :disabled="!store.canUndo()"
+                @click="store.undo(); isFileMenuOpen = false"
+              >
+                <i class="pi pi-undo"></i> Undo
+              </button>
+              <div class="dropdown-divider"></div>
+            </template>
+
             <!-- Force Element Type -->
             <div class="dropdown-item-with-submenu">
               <button class="dropdown-item" @click.stop>
@@ -102,19 +130,45 @@
                 <i class="pi pi-angle-right" style="float: right; margin-top: 2px;"></i>
               </button>
               <div class="dropdown-submenu">
-                <button class="dropdown-item" @click="store.showTimeReminder = true; isFileMenuOpen = false">
+                <p v-if="props.isMobile" class="dropdown-mobile-note">Tools only available on desktop</p>
+                <button
+                  class="dropdown-item"
+                  :class="{ 'dropdown-item-desktop-only': props.isMobile }"
+                  :disabled="props.isMobile"
+                  @click="store.showTimeReminder = true; isFileMenuOpen = false"
+                >
                   <i class="pi pi-clock"></i> Time Reminder
                 </button>
-                <button class="dropdown-item" @click="openFindReplace('find'); isFileMenuOpen = false">
+                <button
+                  class="dropdown-item"
+                  :class="{ 'dropdown-item-desktop-only': props.isMobile }"
+                  :disabled="props.isMobile"
+                  @click="openFindReplace('find'); isFileMenuOpen = false"
+                >
                   <i class="pi pi-search"></i> Find (Ctrl+F)
                 </button>
-                <button class="dropdown-item" @click="openFindReplace('replace'); isFileMenuOpen = false">
+                <button
+                  class="dropdown-item"
+                  :class="{ 'dropdown-item-desktop-only': props.isMobile }"
+                  :disabled="props.isMobile"
+                  @click="openFindReplace('replace'); isFileMenuOpen = false"
+                >
                   <i class="pi pi-replay"></i> Replace (Ctrl+H)
                 </button>
-                <button class="dropdown-item" @click="store.showCharacterReplace = true; isFileMenuOpen = false">
+                <button
+                  class="dropdown-item"
+                  :class="{ 'dropdown-item-desktop-only': props.isMobile }"
+                  :disabled="props.isMobile"
+                  @click="store.showCharacterReplace = true; isFileMenuOpen = false"
+                >
                   <i class="pi pi-user-edit"></i> Replace Character
                 </button>
-                <button class="dropdown-item" @click="store.showScriptAnalysis = true; isFileMenuOpen = false">
+                <button
+                  class="dropdown-item"
+                  :class="{ 'dropdown-item-desktop-only': props.isMobile }"
+                  :disabled="props.isMobile"
+                  @click="store.showScriptAnalysis = true; isFileMenuOpen = false"
+                >
                   <i class="pi pi-chart-bar"></i> Script Analysis
                 </button>
                 <button class="dropdown-item" @click="store.showSpellGrammarDialog = true; isFileMenuOpen = false">
@@ -128,14 +182,15 @@
             <button class="dropdown-item dropdown-item-disabled" disabled>
               <i class="pi pi-book"></i> Training
             </button>
-            <button class="dropdown-item" @click="showShortcuts">
+            <button v-if="!props.isMobile" class="dropdown-item" @click="showShortcuts">
               <i class="pi pi-question-circle"></i> Keyboard Shortcuts (Ctrl+/)
             </button>
           </div>
         </div>
 
-        <!-- Scene Navigator Toggle -->
+        <!-- Scene Navigator Toggle (hidden on mobile - in dropdown) -->
         <button
+          v-if="!props.isMobile"
           class="icon-btn"
           :class="{ active: store.sceneNavVisible }"
           title="Toggle Scene Navigator (Ctrl+\)"
@@ -148,8 +203,9 @@
           </span>
         </button>
 
-        <!-- Spell check toggle (native browser spellcheck) -->
+        <!-- Spell check toggle (hidden on mobile) -->
         <button
+          v-if="!props.isMobile"
           class="icon-btn"
           :class="{ active: store.spellCheckEnabled }"
           :title="store.spellCheckEnabled ? 'Spell check on' : 'Spell check off'"
@@ -160,8 +216,8 @@
 
         <h1 class="app-title-inline clickable-title" @click="$emit('open-about')">ArtScript Web</h1>
 
-        <!-- Undo/Redo (NEW) -->
-        <div class="undo-redo-group">
+        <!-- Undo/Redo (hidden on mobile - in dropdown) -->
+        <div v-if="!props.isMobile" class="undo-redo-group">
           <button
             class="icon-btn"
             :disabled="!store.canUndo()"
@@ -181,7 +237,7 @@
         </div>
       </div>
 
-      <div class="toolbar-center">
+      <div v-if="!props.isMobile" class="toolbar-center">
         <input
           v-if="store.activeProject"
           type="text"
@@ -191,9 +247,9 @@
         />
       </div>
 
-      <div class="toolbar-right">
-        <!-- Stats Display -->
-        <div v-if="stats" class="stats-display">
+      <div v-if="!props.isMobile" class="toolbar-right">
+        <!-- Stats Display (hidden on mobile) -->
+        <div v-if="!props.isMobile && stats" class="stats-display">
           <span class="stat-item" title="Page count">
             <i class="pi pi-file"></i> {{ stats.pageCount }}
           </span>
@@ -202,8 +258,9 @@
           </span>
         </div>
 
-        <!-- Full Page View Toggle -->
+        <!-- Full Page View Toggle (hidden on mobile - in dropdown) -->
         <button
+          v-if="!props.isMobile"
           class="icon-btn"
           :class="{ active: store.fullPageView }"
           title="Toggle Full Page View"
@@ -212,14 +269,14 @@
           <i class="pi pi-eye"></i>
         </button>
 
-        <!-- Dark Mode Toggle -->
-        <label class="switch">
+        <!-- Dark Mode Toggle (hidden on mobile - in dropdown) -->
+        <label v-if="!props.isMobile" class="switch">
           <input type="checkbox" :checked="store.darkMode" @change="store.toggleDarkMode" />
           <span class="slider"></span>
         </label>
 
-        <!-- Format Display -->
-        <div class="info-text">
+        <!-- Format Display (hidden on mobile) -->
+        <div v-if="!props.isMobile" class="info-text">
           <span v-if="store.activeProject">{{ store.activeProject.format }}</span>
         </div>
       </div>
@@ -278,7 +335,12 @@ import { useProjectStore } from '@/stores/project'
 import { useRouter } from 'vue-router'
 import TabBar from './TabBar.vue'
 
+const props = defineProps({
+  isMobile: { type: Boolean, default: false },
+})
+
 const store = useProjectStore()
+const isTVShow = computed(() => store.activeProject?.format === 'TV Show')
 const router = useRouter()
 
 const isFileMenuOpen = ref(false)
@@ -419,7 +481,6 @@ const showShortcuts = () => {
 }
 
 const forceLineType = (type) => {
-  // Dispatch event to force line type in editor
   window.dispatchEvent(new CustomEvent('force-line-type', { detail: { type } }))
   isFileMenuOpen.value = false
 }
@@ -529,6 +590,25 @@ onUnmounted(() => {
 }
 :global(body.dark-mode) .dropdown-item-disabled,
 :global(body.dark-mode) .dropdown-item:disabled {
+  color: #666 !important;
+}
+
+/* Mobile: Tools submenu - desktop-only note */
+.dropdown-mobile-note {
+  margin: 0;
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  color: #999;
+  font-weight: 400;
+}
+:global(body.dark-mode) .dropdown-mobile-note {
+  color: #666;
+}
+
+.dropdown-item-desktop-only {
+  color: #999 !important;
+}
+:global(body.dark-mode) .dropdown-item-desktop-only {
   color: #666 !important;
 }
 
@@ -720,4 +800,5 @@ onUnmounted(() => {
 :global(body.dark-mode) .book-coming-soon-close:hover {
   background: #555;
 }
+
 </style>

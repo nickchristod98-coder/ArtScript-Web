@@ -238,7 +238,7 @@ import InputText from 'primevue/inputtext'
 import Dialog from 'primevue/dialog'
 import Menu from 'primevue/menu'
 
-const emit = defineEmits(['find-character'])
+const emit = defineEmits(['find-character', 'scene-selected'])
 const store = useProjectStore()
 
 // --- Character panel state (from CharacterManager) ---
@@ -278,6 +278,9 @@ const getHighlightClass = (scene, idx) => {
 const scrollToScene = (index, sceneId) => {
   // Set the selected scene
   store.selectedSceneId = sceneId
+  
+  // Emit for parent (e.g. to close mobile popup)
+  emit('scene-selected', index)
   
   // Emit event to scroll to scene
   window.dispatchEvent(new CustomEvent('scroll-to-scene', { detail: { lineIndex: index } }))
