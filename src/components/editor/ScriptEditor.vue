@@ -29,6 +29,8 @@
             <div
               :ref="(el) => setLineRef(el, index)"
               class="line-content"
+              :data-line-id="line.id"
+              contenteditable="true"
               @mousedown="handleMouseDown($event, index)"
               @mouseup="handleMouseUp($event, index)"
               @mouseleave="handleMouseLeave($event, index)"
@@ -596,6 +598,7 @@ const autoDetectType = (lineId, content) => {
 }
 
 // Get current line index from selection (for single contenteditable)
+// data-line-index is on the parent of .script-line, not on .script-line itself
 const getCurrentLineFromSelection = () => {
   const sel = window.getSelection()
   if (!sel || !sel.rangeCount) return null
@@ -604,8 +607,9 @@ const getCurrentLineFromSelection = () => {
   if (node.nodeType === Node.TEXT_NODE) node = node.parentElement
   const scriptLine = node?.closest?.('.script-line')
   if (!scriptLine) return null
-  const idx = parseInt(scriptLine.getAttribute('data-line-index'), 10)
-  if (isNaN(idx)) return null
+  const lineIndexEl = scriptLine.closest?.('[data-line-index]')
+  const idx = lineIndexEl != null ? parseInt(lineIndexEl.getAttribute('data-line-index'), 10) : NaN
+  if (isNaN(idx) || idx < 0) return null
   const line = lines.value[idx]
   return line ? { line, index: idx } : null
 }
@@ -650,106 +654,113 @@ const handleKeyDown = (event, line, index) => {
     return
   }
 
-  // Enter key - always split line at cursor position (split line philosophy)
+  // Enter key - never let the browser handle it; always split line at cursor and create new block
   if (event.key === 'Enter') {
     event.preventDefault()
-    // Do not restore cursor after this keypress; let focus/cursor move to the new line
+    event.stopPropagation()
     skipNextCursorRestore.value = true
 
+    // Resolve current line element (must be the .line-content for this line)
+    const lineEl = lineRefs.value[index]
+    const currentElement = lineEl || (event.target.classList?.contains('line-content') ? event.target : null)
+    if (!currentElement) return
+
+    const currentText = (currentElement.innerText || currentElement.textContent || '').replace(/\u200B/g, '')
+    let cursorPosition = 0
+
     const selection = window.getSelection()
-    if (!selection.rangeCount) return
+    if (selection?.rangeCount) {
+      const range = selection.getRangeAt(0)
+      try {
+        // Cursor position: from start of this line's content to selection start
+        const preRange = document.createRange()
+        preRange.selectNodeContents(currentElement)
+        if (currentElement.contains(range.startContainer)) {
+          preRange.setEnd(range.startContainer, range.startOffset)
+          cursorPosition = preRange.toString().length
+        } else {
+          cursorPosition = currentText.length
+        }
+      } catch (_) {
+        cursorPosition = currentText.length
+      }
+    } else {
+      cursorPosition = currentText.length
+    }
+    cursorPosition = Math.max(0, Math.min(cursorPosition, currentText.length))
 
-    const range = selection.getRangeAt(0)
-    const currentText = currentElement.innerText || currentElement.textContent || ''
-    
-    // Get accurate cursor position in contenteditable
-    // Create a range from start of element to cursor position
-    const preRange = range.cloneRange()
-    preRange.selectNodeContents(currentElement)
-    preRange.setEnd(range.startContainer, range.startOffset)
-    const cursorPosition = preRange.toString().length
-
-    // Check if cursor is at the start of the first line (start of script)
+    // Cursor at start of first line and line empty: insert empty line at start
     if (index === 0 && cursorPosition === 0 && currentText.length === 0) {
-      // Move whole script one line down by inserting empty line at start
       store.pushToHistory()
       const emptyLine = { id: uuidv4(), type: 'action', content: '' }
       store.activeProject.lines.unshift(emptyLine)
       store.activeProject.updatedAt = Date.now()
-      
       nextTick(() => {
-        const firstElement = lineRefs.value[0]
-        if (firstElement) {
-          firstElement.focus()
-        }
+        nextTick(() => {
+          const firstElement = lineRefs.value[0]
+          if (firstElement) {
+            firstElement.contentEditable = 'true'
+            firstElement.focus()
+            placeCursorAtEnd(firstElement)
+          }
+        })
       })
       return
     }
 
-    // Special handling for scene heading: if entering from start, push whole script down
+    // Scene heading, cursor at start: insert empty line above
     if (line.type === 'scene-heading' && cursorPosition === 0) {
-      // Insert empty line above the scene heading (push script down)
       store.pushToHistory()
       const emptyLine = { id: uuidv4(), type: 'action', content: '' }
       store.activeProject.lines.splice(index, 0, emptyLine)
       store.activeProject.updatedAt = Date.now()
-      
-      // Scene break - update (CONT'D) status for characters below
       updateContdBelow(index)
-      
       nextTick(() => {
-        const newElement = lineRefs.value[index]
-        if (newElement) {
-          newElement.focus()
-        }
+        nextTick(() => {
+          const newElement = lineRefs.value[index]
+          if (newElement) {
+            newElement.contentEditable = 'true'
+            newElement.focus()
+            placeCursorAtEnd(newElement)
+          }
+        })
       })
       return
     }
 
-    // Always split the line at cursor position (split line philosophy)
+    // Split line at cursor: before stays on current line, after goes to new line
     const beforeText = currentText.substring(0, cursorPosition)
     const afterText = currentText.substring(cursorPosition)
 
-    // Update current line with text before cursor
     store.updateLine(line.id, beforeText)
 
-    // Determine type for new line
     let nextType
     if (isBookFormat.value) {
-      // For Book format, always create body-text paragraphs
       nextType = 'body-text'
     } else if (line.type === 'scene-heading') {
-      // If splitting scene heading, make split text action
       nextType = 'action'
     } else {
       nextType = getNextLineType(line.type)
     }
 
-    // Insert new line and move the split text to it
     const newLine = store.addLine(line.id, nextType)
-    
-    // Set the split text on the new line
     store.updateLine(newLine.id, afterText)
-    
-    // If new line is character type, update (CONT'D) status
+
     if (nextType === 'character') {
-      nextTick(() => {
-        updateContdStatus(newLine.id, index + 1)
-      })
+      nextTick(() => updateContdStatus(newLine.id, index + 1))
     }
 
+    // Wait for Vue to render the new .line-content, then sync DOM and put cursor at end of new line
     nextTick(() => {
-      const nextElement = lineRefs.value[index + 1]
-      if (nextElement) {
-        // Ensure the text is set in the DOM
-        // Note: scene number will be added automatically by the display logic
-        if (afterText.length > 0) {
-          nextElement.innerText = afterText
+      nextTick(() => {
+        const nextElement = lineRefs.value[index + 1]
+        if (nextElement) {
+          nextElement.innerText = afterText || '\u200B'
+          nextElement.contentEditable = 'true'
+          nextElement.focus()
+          placeCursorAtEnd(nextElement)
         }
-        nextElement.focus()
-        // Move cursor to start of new line where the split text is
-        moveCursorToStart(nextElement)
-      }
+      })
     })
   }
 
@@ -927,6 +938,15 @@ const handlePaste = (event) => {
 
 // Handle click on editor (outside lines)
 const handleEditorClick = (event) => {
+  // Update current line index when clicking any line so Force buttons target the right line
+  const scriptLine = event.target.closest?.('.script-line')
+  const lineIndexEl = event.target.closest?.('[data-line-index]')
+  if (scriptLine || lineIndexEl) {
+    const idx = lineIndexEl
+      ? parseInt(lineIndexEl.getAttribute('data-line-index'), 10)
+      : lines.value.findIndex((l) => l.id === scriptLine?.getAttribute?.('data-line-id'))
+    if (!isNaN(idx) && idx >= 0) currentLineIndex.value = idx
+  }
   if (event.target.classList.contains('script-editor')) {
     const lastLine = lineRefs.value[lines.value.length - 1]
     if (lastLine) {
@@ -1247,32 +1267,33 @@ watch(
   (newLines, oldLines) => {
     if (!newLines) return
 
-    // If oldLines is null/undefined, this is an initial load or array replacement (episode switch)
+    // If oldLines is null/undefined, this is an initial load or array replacement (import / episode switch)
     if (!oldLines || newLines !== oldLines) {
       // Capture cursor before DOM sync so we can restore after (e.g. idle delay re-render)
       const captured = captureCursorPosition()
       if (captured) {
         pendingCursorRestore.value = { index: captured.index, startOffset: captured.startOffset, endOffset: captured.endOffset }
       }
-      // Array reference changed (episode switch) or initial load
+      // Array reference changed (episode switch or fountain import) – ensure editor is editable, then sync DOM after refs are set
       isExternalUpdate.value = true
+      nextTick(ensureEditorEditable)
       nextTick(() => {
-        newLines.forEach((line, index) => {
-          const el = lineRefs.value[index]
-          if (el) {
-            el.innerText = line.content || ''
-          }
+        nextTick(() => {
+          newLines.forEach((line, index) => {
+            const el = lineRefs.value[index]
+            if (el) {
+              el.innerText = line.content || ''
+            }
+          })
+          calculatePageBreaks()
+          isExternalUpdate.value = false
+          newLines.forEach((line, index) => {
+            if (line.type === 'character') {
+              updateContdStatus(line.id, index)
+            }
+          })
+          restorePendingCursor()
         })
-        calculatePageBreaks()
-        isExternalUpdate.value = false
-        
-        // Update all (CONT'D) statuses
-        newLines.forEach((line, index) => {
-          if (line.type === 'character') {
-            updateContdStatus(line.id, index)
-          }
-        })
-        restorePendingCursor()
       })
       return
     }
@@ -1669,11 +1690,25 @@ function deleteFloatingNote() {
   }
 }
 
+// Remove pointer-events: none and user-select: none from editor and ancestors so imported content is editable
+function ensureEditorEditable() {
+  const root = editorRootRef.value
+  if (!root) return
+  let el = root
+  while (el && el !== document.body) {
+    const style = el.style
+    if (style.pointerEvents === 'none') style.pointerEvents = ''
+    if (style.userSelect === 'none') style.userSelect = ''
+    el = el.parentElement
+  }
+}
+
 // Initialize
 onMounted(() => {
   // Calculate initial page breaks
   calculatePageBreaks()
-  
+  nextTick(ensureEditorEditable)
+
   // Focus first line if exists (use nextTick to ensure refs are set)
   nextTick(() => {
     if (lines.value.length > 0) {
