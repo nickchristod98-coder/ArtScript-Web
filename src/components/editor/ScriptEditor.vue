@@ -1,6 +1,6 @@
 <!-- SimplifiedScriptEditor.vue -->
 <template>
-  <div class="editor-container" ref="containerRef" :class="{ 'full-page-view': store.fullPageView, 'has-mobile-force-bar': props.isMobile }">
+  <div class="editor-container" ref="containerRef" :class="{ 'full-page-view': store.fullPageView, 'has-mobile-force-bar': props.isMobile }" @click="handleContainerClick">
     <div class="editor-wrapper">
       <div
         class="script-editor"
@@ -1088,6 +1088,19 @@ const handlePaste = (event) => {
   selection.collapseToEnd()
 }
 
+// Click on main editor container: if user clicked empty space below content, focus last line and put caret at end
+const handleContainerClick = (event) => {
+  if (!event.target.closest('.editor-wrapper') || event.target.closest('.line-content')) return
+  const lastIdx = lines.value.length - 1
+  if (lastIdx < 0) return
+  const lastLine = lineRefs.value[lastIdx]
+  if (lastLine) {
+    lastLine.focus()
+    moveCursorToEnd(lastLine)
+    currentLineIndex.value = lastIdx
+  }
+}
+
 // Handle click on editor (outside lines)
 const handleEditorClick = (event) => {
   // Update current line index when clicking any line so Force buttons target the right line
@@ -1125,6 +1138,18 @@ const placeCursorAtEnd = (element) => {
   const selection = window.getSelection()
   range.selectNodeContents(element)
   range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  element.focus()
+}
+
+// Place cursor at start of element and focus (for new formatted line so caret is at beginning)
+const placeCursorAtStart = (element) => {
+  if (!element) return
+  const range = document.createRange()
+  const selection = window.getSelection()
+  range.selectNodeContents(element)
+  range.collapse(true)
   selection.removeAllRanges()
   selection.addRange(range)
   element.focus()
@@ -1536,24 +1561,6 @@ watch(
   },
 )
 
-// Transform content when forcing line type (e.g. from mobile toolbar)
-function getTransformedContentForType(content, type) {
-  const trimmed = (content || '').trim()
-  if (type === 'chapter-title') return content
-  if (type === 'scene-heading') {
-    if (!trimmed) return 'INT. - DAY'
-    if (!isSceneHeadingStart(trimmed)) return 'INT. ' + trimmed.toUpperCase()
-  }
-  if (type === 'character') {
-    return trimmed ? trimmed.toUpperCase() : trimmed
-  }
-  if (type === 'parenthetical') {
-    if (!trimmed) return '( )'
-    if (!trimmed.startsWith('(') || !trimmed.endsWith(')')) return '(' + trimmed + ')'
-  }
-  return content
-}
-
 // Dispatch force line type (for mobile toolbar buttons)
 const forceLineTypeWithFocus = (type, contentOverride) => {
   const detail = { type, restoreFocus: true }
@@ -1561,41 +1568,72 @@ const forceLineTypeWithFocus = (type, contentOverride) => {
   window.dispatchEvent(new CustomEvent('force-line-type', { detail }))
 }
 
-// Force line type handler
+// Force line type handler: act on a new line only; never transform or drag existing text.
+// - If current line is empty: apply the requested type to it and focus with caret at start (or at end of contentOverride).
+// - If current line has content: insert a new line below with the requested type (empty or contentOverride), focus it, caret at start (or at end of contentOverride).
 const handleForceLineType = (event) => {
   const { type, restoreFocus, contentOverride } = event.detail || {}
   const resolvedType = isBookFormat.value && type === 'scene-heading' ? 'chapter-title' : type
   const currentLine = lines.value[currentLineIndex.value]
-  
-  if (currentLine) {
-    store.pushToHistory()
-    const newContent = contentOverride != null
-      ? contentOverride
-      : getTransformedContentForType(currentLine.content, resolvedType)
-    store.updateLine(currentLine.id, newContent, resolvedType)
-    
-    // Sync DOM for contenteditable
+  if (!currentLine) return
+
+  const currentContent = (currentLine.content || '').trim()
+  const isCurrentEmpty = currentContent === ''
+
+  // Content for the line we're formatting: only allow override (e.g. "INT. "), never existing text
+  const lineContent = contentOverride != null ? contentOverride : ''
+
+  store.pushToHistory()
+
+  if (isCurrentEmpty) {
+    // Apply type to the existing empty line; do not create a new one
+    store.updateLine(currentLine.id, lineContent, resolvedType)
     nextTick(() => {
       const el = lineRefs.value[currentLineIndex.value]
-      if (el && el.innerText !== newContent) el.innerText = newContent
-      if (restoreFocus && el) {
-        nextTick(() => {
-          placeCursorAtEnd(el)
-        })
+      if (el) {
+        el.innerText = lineContent || '\u200B'
+        ensureBlockHasContent(el)
+        if (restoreFocus) {
+          if (lineContent) placeCursorAtEnd(el)
+          else placeCursorAtStart(el)
+        }
       }
     })
-    
-    // If forced to character, update (CONT'D) status
     if (resolvedType === 'character') {
-      nextTick(() => {
-        updateContdStatus(currentLine.id, currentLineIndex.value)
-      })
+      nextTick(() => updateContdStatus(currentLine.id, currentLineIndex.value))
     }
-    
-    // If forced to scene-heading, reset selected scene to highlight last scene
     if (resolvedType === 'scene-heading' || resolvedType === 'chapter-title') {
       store.selectedSceneId = null
     }
+    return
+  }
+
+  // Current line has content: create a new line below with the requested type (empty or contentOverride only)
+  const newLine = store.addLine(currentLine.id, resolvedType)
+  store.updateLine(newLine.id, lineContent)
+
+  const newIndex = currentLineIndex.value + 1
+  currentLineIndex.value = newIndex
+
+  nextTick(() => {
+    nextTick(() => {
+      const el = lineRefs.value[newIndex]
+      if (el) {
+        el.innerText = lineContent || '\u200B'
+        ensureBlockHasContent(el)
+        if (restoreFocus) {
+          if (lineContent) placeCursorAtEnd(el)
+          else placeCursorAtStart(el)
+        }
+      }
+    })
+  })
+
+  if (resolvedType === 'character') {
+    nextTick(() => updateContdStatus(newLine.id, newIndex))
+  }
+  if (resolvedType === 'scene-heading' || resolvedType === 'chapter-title') {
+    store.selectedSceneId = null
   }
 }
 
@@ -1622,16 +1660,7 @@ const handleForceShortcuts = (event) => {
   
   if (keyMap[event.key]) {
     event.preventDefault()
-    const currentLine = lines.value[currentLineIndex.value]
-    if (currentLine) {
-      store.pushToHistory()
-      store.updateLine(currentLine.id, currentLine.content, keyMap[event.key])
-      
-      // If forced to scene-heading, reset selected scene to highlight last scene
-      if (keyMap[event.key] === 'scene-heading') {
-        store.selectedSceneId = null
-      }
-    }
+    window.dispatchEvent(new CustomEvent('force-line-type', { detail: { type: keyMap[event.key], restoreFocus: true } }))
   }
 }
 
@@ -1648,11 +1677,7 @@ const handleChapterTitleShortcut = (event) => {
     if (!isContentEditable) return
     
     event.preventDefault()
-    const currentLine = lines.value[currentLineIndex.value]
-    if (currentLine) {
-      store.pushToHistory()
-      store.updateLine(currentLine.id, currentLine.content, 'chapter-title')
-    }
+    window.dispatchEvent(new CustomEvent('force-line-type', { detail: { type: 'chapter-title', restoreFocus: true } }))
   }
 }
 
@@ -2003,7 +2028,7 @@ onUnmounted(() => {
   width: 794px; /* A4 width – fixed; do not scale with browser; scroll left/right if narrower */
   min-width: 794px;
   background: white;
-  min-height: 1123px; /* A4 height in pixels at 96 DPI */
+  min-height: max(1123px, 100vh); /* At least A4 or full viewport so the whole paper is clickable */
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   padding: 72px 90px 72px 72px; /* Standard margins */
   transition: all 0.3s ease;

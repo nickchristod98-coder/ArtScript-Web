@@ -495,7 +495,7 @@ const showShortcuts = () => {
 }
 
 const forceLineType = (type) => {
-  window.dispatchEvent(new CustomEvent('force-line-type', { detail: { type } }))
+  window.dispatchEvent(new CustomEvent('force-line-type', { detail: { type, restoreFocus: true } }))
   isFileMenuOpen.value = false
 }
 
@@ -593,6 +593,16 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+/* Bridge the gap between main menu and submenu so mouseleave doesn't fire when moving to submenu */
+.dropdown-submenu::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 0;
+  bottom: 0;
+  width: 12px;
 }
 
 /* Disabled dropdown items */
