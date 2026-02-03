@@ -1,6 +1,6 @@
 <!-- src/views/WorkspaceView.vue - ENHANCED -->
 <template>
-  <div class="app-container" :class="{ 'focus-mode': focusMode }">
+  <div class="app-container" :class="{ 'focus-mode': focusMode, 'interactive-training-active': store.showInteractiveTraining }">
     <AppHeader :isMobile="isMobile" @open-about="showAboutDialog = true" />
 
     <!-- Auto-save indicator -->
@@ -46,7 +46,7 @@
       />
 
       <!-- Main Editor -->
-      <main class="editor-area">
+      <main class="editor-area" :class="{ 'training-focus': store.showInteractiveTraining }">
         <!-- Formatting Toolbar -->
         <div class="formatting-toolbar-wrapper">
           <button
@@ -114,6 +114,7 @@
     <SpellGrammarDialog v-model:visible="store.showSpellGrammarDialog" />
     <TimeReminderDialog v-model:visible="store.showTimeReminder" />
     <TrainingDialog :visible="store.showTrainingDialog" @update:visible="store.showTrainingDialog = $event" />
+    <InteractiveTrainingOverlay :visible="store.showInteractiveTraining" @update:visible="store.showInteractiveTraining = $event" />
     <ShortcutsDialog />
 
     <!-- About Dialog -->
@@ -223,6 +224,7 @@ import ScriptAnalysisDialog from '@/components/dialogs/ScriptAnalysisDialog.vue'
 import SpellGrammarDialog from '@/components/dialogs/SpellGrammarDialog.vue'
 import TimeReminderDialog from '@/components/dialogs/TimeReminderDialog.vue'
 import TrainingDialog from '@/components/dialogs/TrainingDialog.vue'
+import InteractiveTrainingOverlay from '@/components/dialogs/InteractiveTrainingOverlay.vue'
 import ShortcutsDialog from '@/components/dialogs/ShortcutsDialog.vue'
 // Character panel is now inside SideBar (Scenes | Characters tabs)
 
@@ -533,6 +535,13 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   justify-content: center;
+}
+
+.editor-area.training-focus {
+  z-index: 99998;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.4);
+  border-radius: 8px;
+  margin: 4px;
 }
 
 .autosave-indicator {

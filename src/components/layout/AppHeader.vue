@@ -182,6 +182,9 @@
             <button class="dropdown-item" @click="store.showTrainingDialog = true; isFileMenuOpen = false">
               <i class="pi pi-book"></i> App Tour
             </button>
+            <button class="dropdown-item" @click="store.showInteractiveTraining = true; isFileMenuOpen = false">
+              <i class="pi pi-graduation-cap"></i> Training
+            </button>
             <button v-if="!props.isMobile" class="dropdown-item" @click="showShortcuts">
               <i class="pi pi-question-circle"></i> Keyboard Shortcuts (Ctrl+/)
             </button>

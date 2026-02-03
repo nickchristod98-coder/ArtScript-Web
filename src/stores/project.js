@@ -26,6 +26,7 @@ export const useProjectStore = defineStore('project', {
     showScriptAnalysis: false,
     showSpellGrammarDialog: false,
     showTrainingDialog: false,
+    showInteractiveTraining: false,
 
     // Settings
     autoSaveInterval: 30000, // 30 seconds
