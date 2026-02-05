@@ -39,21 +39,21 @@
       </button>
     </div>
 
-    <!-- Scenes view -->
+    <!-- Scenes view: computed from editor blocks — no own state -->
     <template v-if="store.sidebarView === 'scenes'">
       <div class="scene-list">
-        <div
-          v-for="(scene, idx) in store.activeScenes"
-          :key="scene.id"
-          class="scene-item"
-          :class="getHighlightClass(scene, idx)"
-          @click="scrollToScene(scene.index, scene.id)"
-          @mouseenter="handleMouseEnter(scene, idx, $event)"
-          @mouseleave="handleMouseLeave"
-        >
+        <template v-for="(scene, idx) in scenes" :key="scene.id">
+          <div
+            class="scene-item"
+            :class="getHighlightClass(scene, idx)"
+            @click="scrollToScene(scene.index, scene.id)"
+            @mouseenter="handleMouseEnter(scene, idx, $event)"
+            @mouseleave="handleMouseLeave"
+          >
           <span class="scene-number">{{ scene.number || idx + 1 }}.</span>
           <span class="scene-title">{{ scene.title }}</span>
         </div>
+        </template>
       </div>
     </template>
 
@@ -175,6 +175,7 @@
 
   <!-- Character context menu -->
   <Menu ref="characterMenu" :model="characterMenuItems" :popup="true" />
+
   
   <!-- Scene Preview Tooltip - Using Teleport to render outside sidebar -->
   <Teleport to="body">
@@ -203,15 +204,15 @@
           <button class="scene-showcase-close" @click="showSceneShowcase = false">×</button>
         </div>
         <div class="scene-showcase-grid">
+          <template v-for="(scene, idx) in scenes" :key="scene.id">
           <div
-            v-for="(scene, idx) in store.activeScenes"
-            :key="scene.id"
+            v-if="scene"
             class="scene-card"
             @click="navigateToScene(scene.index, scene.id)"
           >
             <div class="scene-card-top">
               <span class="scene-card-heading-number">{{ scene.number || idx + 1 }}.</span>
-              <span class="scene-card-heading-title">{{ scene.title || (isBookFormat ? `Chapter ${idx + 1}` : 'UNTITLED SCENE') }}</span>
+              <span class="scene-card-heading-title">{{ scene.title }}</span>
             </div>
             <div class="scene-card-content">
               <div 
@@ -224,6 +225,7 @@
               </div>
             </div>
           </div>
+          </template>
         </div>
       </div>
     </div>
@@ -265,13 +267,17 @@ let currentSceneIndex = null
 // Scene showcase modal state
 const showSceneShowcase = ref(false)
 
+// Single source of truth: scenes = computed from editor blocks (project.lines).
+// Navigator has NO own state. Only blocks with type scene-heading and non-empty content appear.
+const scenes = computed(() => store.activeScenes || [])
+
 // Determine which scene should be highlighted
 // If selectedSceneId is set, highlight that; otherwise highlight last scene
 const getHighlightClass = (scene, idx) => {
-  const isLastScene = idx === store.activeScenes.length - 1
+  const list = scenes.value
+  const isLastScene = idx === list.length - 1
   const isSelected = store.selectedSceneId === scene.id
-  
-  // Highlight selected scene, or last scene if nothing is selected
+
   return (isSelected || (!store.selectedSceneId && isLastScene)) ? 'last-scene' : ''
 }
 
@@ -486,6 +492,10 @@ const characterMenuItems = computed(() => [
 
 function selectCharacter(character) {
   selectedCharacter.value = { ...character }
+  // Table Read: highlight this character's dialogue when in Read Mode
+  if (store.isReadMode) {
+    store.setHighlightedCharacterForRead(character.name)
+  }
 }
 
 function saveCharacter() {
@@ -549,9 +559,7 @@ watch(() => store.activeScenes.length, (newLength, oldLength) => {
 
 // Cleanup on unmount
 onUnmounted(() => {
-  if (hoverTimeout) {
-    clearTimeout(hoverTimeout)
-  }
+  if (hoverTimeout) clearTimeout(hoverTimeout)
 })
 </script>
 
@@ -856,6 +864,7 @@ onUnmounted(() => {
   min-height: 44px;
   transition: background-color 0.2s ease;
 }
+
 .scene-item:hover {
   background: #f0f0f0;
 }
@@ -1305,13 +1314,14 @@ body.dark-mode .scene-card-heading-number {
   font-size: 13px;
   font-weight: 600;
   color: #333;
-  line-height: 1.3;
-  font-family: 'Courier New', monospace;
-  text-transform: uppercase;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  line-height: 1.3;
+  font-family: 'Courier New', monospace;
+  text-transform: uppercase;
 }
 
 body.dark-mode .scene-card-heading-title {

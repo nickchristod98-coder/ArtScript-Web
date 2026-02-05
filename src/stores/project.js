@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import { v4 as uuidv4 } from 'uuid'
 import { useHistoryStore } from './history'
+import { FEATURES_ANNOTATION_DRAWING_HIDDEN } from '@/config/features'
 
 export const useProjectStore = defineStore('project', {
   state: () => ({
@@ -13,6 +14,7 @@ export const useProjectStore = defineStore('project', {
     sceneNavVisible: true,
     sceneTimelineVisible: false,
     episodeNavVisible: false,
+    notesNavVisible: false,
     characterPanelVisible: false,
     fullPageView: false,
 
@@ -41,26 +43,32 @@ export const useProjectStore = defineStore('project', {
     selectedSceneId: null, // Track manually selected scene, null means highlight last scene
     // Left sidebar content: 'scenes' | 'characters'
     sidebarView: 'scenes',
+
+    // Table Read & Roles (default to writer when FEATURES_ANNOTATION_DRAWING_HIDDEN)
+    userRole: FEATURES_ANNOTATION_DRAWING_HIDDEN ? 'writer' : null, // 'writer' | 'actor' | 'director' | null
+    writerEditMode: true, // when writer: true = Edit, false = Read. Ignored for actor/director.
+    highlightedCharacterForRead: null, // character name (uppercase) whose dialogue is highlighted in Read Mode
+    readModeNotes: {}, // { [lineId]: noteText } - persisted in localStorage per project
+    drawModeEnabled: false, // Draw Mode for mobile/tablet in Read-Only
   }),
 
   getters: {
     activeProject: (state) => state.projects.find((p) => p.id === state.activeProjectId),
 
+    // Single Source of Truth: scenes = blocks where type is scene-heading and content is non-empty.
+    // Navigator has NO own state — purely computed from editor blocks (project.lines).
     activeScenes: (state) => {
       const project = state.projects.find((p) => p.id === state.activeProjectId)
-      if (!project) return []
+      if (!project?.lines) return []
 
-      // For Book format, use chapter-title; for others, use scene-heading
       const filterType = project.format === 'Book' ? 'chapter-title' : 'scene-heading'
 
       return project.lines
         .map((line, index) => ({ line, index }))
-        .filter((item) => item.line.type === filterType)
+        .filter((item) => item.line.type === filterType && (item.line.content?.trim() ?? '') !== '')
         .map((item, i) => ({
           id: item.line.id,
-          title:
-            item.line.content ||
-            (project.format === 'Book' ? `Chapter ${i + 1}` : 'UNTITLED SCENE'),
+          title: item.line.content.trim(),
           index: item.index,
           number: i + 1,
         }))
@@ -114,6 +122,15 @@ export const useProjectStore = defineStore('project', {
       }
       return []
     },
+
+    // Table Read: true when in read-only mode (actor/director, or writer who toggled to Read)
+    isReadMode: (state) =>
+      state.userRole === 'actor' ||
+      state.userRole === 'director' ||
+      (state.userRole === 'writer' && !state.writerEditMode),
+
+    // Can the current user toggle Edit/Read? Only writer.
+    canToggleEditRead: (state) => state.userRole === 'writer',
 
     // Get all characters with their data
     allCharacters: (state) => {
@@ -430,6 +447,54 @@ export const useProjectStore = defineStore('project', {
       return lines
     },
 
+    /**
+     * Delete scene: find the block by id in the blocks array and remove the entire
+     * block object plus all blocks belonging to that scene (until next scene-heading).
+     * Single source of truth — editor blocks updated, Navigator recomputes.
+     */
+    deleteScene(sceneId) {
+      if (!this.activeProject) return
+      if (!sceneId) return
+
+      const blocks = this.activeProject.lines
+      const blockIndex = blocks.findIndex((b) => b.id === sceneId)
+      if (blockIndex === -1) return
+
+      if (this.activeScenes.length <= 1) return
+
+      this.pushToHistory()
+
+      const sceneBlocks = this.getLinesForScene(blockIndex)
+      const idsToRemove = new Set(sceneBlocks.map((b) => b.id))
+
+      const updatedBlocks = blocks.filter((b) => !idsToRemove.has(b.id))
+      const finalBlocks =
+        updatedBlocks.length === 0
+          ? this.createInitialLines(this.activeProject.format || 'Film')
+          : updatedBlocks
+
+      const project = this.activeProject
+      const idx = this.projects.findIndex((p) => p.id === project.id)
+      if (idx >= 0) {
+        this.projects.splice(idx, 1, {
+          ...project,
+          lines: finalBlocks,
+          updatedAt: Date.now(),
+        })
+      } else {
+        project.lines = finalBlocks
+        project.updatedAt = Date.now()
+      }
+
+      if (project.format === 'TV Show') {
+        this.saveCurrentEpisode()
+      }
+
+      if (this.selectedSceneId === sceneId) {
+        this.selectedSceneId = null
+      }
+    },
+
     // Season management (TV Shows)
     addNewSeason() {
       if (!this.activeProject || this.activeProject.format !== 'TV Show') return
@@ -554,7 +619,7 @@ export const useProjectStore = defineStore('project', {
       }
     },
 
-    addAnnotation({ lineId, anchorText, noteContent }) {
+    addAnnotation({ lineId, anchorText, noteContent, color }) {
       if (!this.activeProject) return
       if (!this.activeProject.annotations) {
         this.activeProject.annotations = []
@@ -564,9 +629,20 @@ export const useProjectStore = defineStore('project', {
         lineId,
         anchorText: anchorText || '',
         noteContent: noteContent || '',
+        color: color || 'yellow',
         createdAt: Date.now(),
       })
       this.activeProject.updatedAt = Date.now()
+    },
+
+    updateAnnotation(annotationId, updates) {
+      if (!this.activeProject?.annotations) return
+      const ann = this.activeProject.annotations.find((a) => a.id === annotationId)
+      if (ann) {
+        if (updates.noteContent !== undefined) ann.noteContent = updates.noteContent
+        if (updates.color !== undefined) ann.color = updates.color
+        if (Object.keys(updates || {}).length) this.activeProject.updatedAt = Date.now()
+      }
     },
 
     deleteAnnotation(annotationId) {
@@ -607,6 +683,61 @@ export const useProjectStore = defineStore('project', {
     toggleFullPageView() {
       this.fullPageView = !this.fullPageView
       // The class will be applied to the editor component directly, not body
+    },
+
+    // Table Read & Roles
+    setUserRole(role) {
+      this.userRole = role
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('artscript-user-role', role || '')
+      }
+    },
+    setWriterEditMode(edit) {
+      this.writerEditMode = edit
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('artscript-writer-edit-mode', edit ? '1' : '0')
+      }
+    },
+    toggleWriterEditRead() {
+      if (this.userRole !== 'writer') return
+      this.writerEditMode = !this.writerEditMode
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('artscript-writer-edit-mode', this.writerEditMode ? '1' : '0')
+      }
+    },
+    setHighlightedCharacterForRead(name) {
+      this.highlightedCharacterForRead = this.highlightedCharacterForRead === name ? null : name
+    },
+    loadTableReadFromStorage() {
+      if (typeof localStorage === 'undefined') return
+      const edit = localStorage.getItem('artscript-writer-edit-mode')
+      if (edit !== null) this.writerEditMode = edit === '1'
+      if (FEATURES_ANNOTATION_DRAWING_HIDDEN) this.userRole = 'writer'
+      else {
+        const role = localStorage.getItem('artscript-user-role')
+        if (role === 'writer' || role === 'actor' || role === 'director') this.userRole = role
+      }
+    },
+    loadReadModeNotes(projectId) {
+      if (!projectId || typeof localStorage === 'undefined') return
+      try {
+        const raw = localStorage.getItem(`artscript-read-notes-${projectId}`)
+        this.readModeNotes = raw ? JSON.parse(raw) : {}
+      } catch {
+        this.readModeNotes = {}
+      }
+    },
+    saveReadModeNote(projectId, lineId, text) {
+      if (!projectId || !lineId) return
+      if (text) {
+        this.readModeNotes = { ...this.readModeNotes, [lineId]: text }
+      } else {
+        const { [lineId]: _, ...rest } = this.readModeNotes
+        this.readModeNotes = rest
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`artscript-read-notes-${projectId}`, JSON.stringify(this.readModeNotes))
+      }
     },
 
     // File I/O
@@ -680,10 +811,10 @@ export const useProjectStore = defineStore('project', {
       return this.importProjectFromFountain(entry.content, fileName)
     },
 
-    exportProjectAsJSON() {
-      if (!this.activeProject) return
-
-      const data = {
+    /** Returns serializable project data (same shape as importProjectFromJSON expects). Used for user_data persistence. */
+    getProjectDataAsObject() {
+      if (!this.activeProject) return null
+      return {
         version: '2.0',
         projectName: this.activeProject.name,
         format: this.activeProject.format,
@@ -698,6 +829,20 @@ export const useProjectStore = defineStore('project', {
         createdAt: this.activeProject.createdAt,
         updatedAt: this.activeProject.updatedAt,
       }
+    },
+
+    /** Replace a project's id (e.g. after loading from user_data to keep same id). */
+    setProjectId(currentId, newId) {
+      const project = this.projects.find((p) => p.id === currentId)
+      if (project) {
+        project.id = newId
+        if (this.activeProjectId === currentId) this.activeProjectId = newId
+      }
+    },
+
+    exportProjectAsJSON() {
+      const data = this.getProjectDataAsObject()
+      if (!data) return
 
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)

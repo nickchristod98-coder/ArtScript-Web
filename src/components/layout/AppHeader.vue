@@ -38,6 +38,16 @@
               </button>
               <div class="dropdown-submenu">
                 <button
+                  v-if="!FEATURES_PROFILE_UI_HIDDEN"
+                  class="dropdown-item"
+                  :class="{ 'dropdown-item-disabled': !userStore.isLoggedIn || !store.activeProject || (userStore.isAtProjectLimit && !userStore.getProject(store.activeProject?.id)) }"
+                  :title="cloudSaveTitle"
+                  :disabled="!userStore.isLoggedIn || !store.activeProject || (userStore.isAtProjectLimit && !userStore.getProject(store.activeProject?.id))"
+                  @click="saveToCloud"
+                >
+                  <i class="pi pi-cloud-upload"></i> Cloud
+                </button>
+                <button
                   class="dropdown-item dropdown-item-asxpro-pro"
                   title=".asxpro coming soon"
                   @click="openAsxproProPopup"
@@ -64,6 +74,46 @@
             </button>
 
             <div class="dropdown-divider"></div>
+
+            <button
+              v-if="!FEATURES_ANNOTATION_DRAWING_HIDDEN"
+              class="dropdown-item"
+              @click="store.setUserRole(null); isFileMenuOpen = false"
+            >
+              <i class="pi pi-user-edit"></i> Switch Role
+            </button>
+            <div v-if="!FEATURES_ANNOTATION_DRAWING_HIDDEN" class="dropdown-divider"></div>
+
+            <!-- Create Profile / My Profile (mobile: in dropdown, hidden when FEATURES_PROFILE_UI_HIDDEN) -->
+            <template v-if="!FEATURES_PROFILE_UI_HIDDEN">
+              <div v-if="props.isMobile" class="dropdown-divider"></div>
+              <button
+                v-if="props.isMobile && !userStore.isLoggedIn"
+                class="dropdown-item dropdown-item-create-profile"
+                @click="openCreateProfileModal(); isFileMenuOpen = false"
+              >
+                <i class="pi pi-user-plus"></i> Create Profile
+              </button>
+              <button
+                v-if="props.isMobile && userStore.isLoggedIn"
+                class="dropdown-item"
+                @click="$emit('open-profile-sheet'); isFileMenuOpen = false"
+              >
+                <i class="pi pi-user"></i>
+                <span class="profile-label-one-line">{{ displayProfileLabel }}</span>
+              </button>
+            </template>
+
+            <!-- Admin Dashboard: only for admin email; hidden when FEATURES_ADMIN_UI_HIDDEN -->
+            <template v-if="isAdmin && !FEATURES_ADMIN_UI_HIDDEN">
+              <div class="dropdown-divider"></div>
+              <button
+                class="dropdown-item dropdown-item-admin"
+                @click="router.push('/admin'); isFileMenuOpen = false"
+              >
+                <i class="pi pi-shield"></i> Admin Dashboard
+              </button>
+            </template>
 
             <!-- Mobile: View & Navigation (dark, sidebars, undo) - Full Page View hidden on mobile -->
             <template v-if="props.isMobile">
@@ -220,6 +270,17 @@
           <i class="pi pi-check" style="font-size: 0.9rem;"></i>
         </button>
 
+        <!-- Mode Toggle: Edit / Read (Writer only) - hidden when FEATURES_ANNOTATION_DRAWING_HIDDEN -->
+        <button
+          v-if="!FEATURES_ANNOTATION_DRAWING_HIDDEN && store.canToggleEditRead"
+          class="mode-toggle-btn"
+          :class="{ active: store.writerEditMode }"
+          :title="store.writerEditMode ? 'Edit Mode (switch to Read)' : 'Read Mode (switch to Edit)'"
+          @click="store.toggleWriterEditRead"
+        >
+          <span class="mode-toggle-label">{{ store.writerEditMode ? 'Edit' : 'Read' }}</span>
+        </button>
+
         <h1 class="app-title-inline clickable-title" @click="$emit('open-about')">ArtScript Web</h1>
 
         <!-- Undo/Redo (hidden on mobile - in dropdown) -->
@@ -255,6 +316,37 @@
       </div>
 
       <div v-if="!props.isMobile" class="toolbar-right">
+        <!-- Create Profile (guest) / My Profile or email (registered); hidden when FEATURES_PROFILE_UI_HIDDEN -->
+        <template v-if="!FEATURES_PROFILE_UI_HIDDEN">
+          <button
+            v-if="!userStore.isLoggedIn"
+            class="header-create-profile-btn"
+            @click="openCreateProfileModal()"
+            title="Create a free profile to unlock 4 project slots"
+          >
+            <i class="pi pi-user-plus"></i>
+            <span>Create Profile</span>
+          </button>
+          <button
+            v-else
+            class="header-my-profile-btn"
+            @click="$emit('open-profile-sheet')"
+            :title="userStore.email || 'My profile'"
+          >
+            <i class="pi pi-user"></i>
+            <span class="profile-label-one-line">{{ displayProfileLabel }}</span>
+          </button>
+        </template>
+        <button
+          v-if="isAdmin && !FEATURES_ADMIN_UI_HIDDEN"
+          class="header-admin-btn"
+          @click="router.push('/admin')"
+          title="Admin Dashboard"
+        >
+          <i class="pi pi-shield"></i>
+          <span>Admin Dashboard</span>
+        </button>
+
         <!-- Stats Display (hidden on mobile) -->
         <div v-if="!props.isMobile && stats" class="stats-display">
           <span class="stat-item" title="Page count">
@@ -291,6 +383,15 @@
     </header>
 
     <TabBar />
+
+    <!-- Create Profile / Sign in modal (hidden when FEATURES_PROFILE_UI_HIDDEN) -->
+    <CreateProfileModal
+      v-if="!FEATURES_PROFILE_UI_HIDDEN"
+      :visible="createProfileModalVisible"
+      :prompt-message="createProfilePromptMessage"
+      @success="createProfileModalVisible = false"
+      @close="createProfileModalVisible = false"
+    />
 
     <!-- Book format coming soon popup -->
     <div v-if="showBookComingSoon" class="book-coming-soon-overlay" @click.self="showBookComingSoon = false">
@@ -340,15 +441,45 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useProjectStore } from '@/stores/project'
+import { useUserStore } from '@/stores/user'
+import { FEATURES_ANNOTATION_DRAWING_HIDDEN, FEATURES_PROFILE_UI_HIDDEN, FEATURES_ADMIN_UI_HIDDEN } from '@/config/features'
+import { ADMIN_EMAIL } from '@/config/admin'
 import { useRouter } from 'vue-router'
 import TabBar from './TabBar.vue'
+import CreateProfileModal from '@/components/dialogs/CreateProfileModal.vue'
 
 const props = defineProps({
   isMobile: { type: Boolean, default: false },
 })
 
 const store = useProjectStore()
+const userStore = useUserStore()
 const isTVShow = computed(() => store.activeProject?.format === 'TV Show')
+
+const createProfileModalVisible = ref(false)
+const createProfilePromptMessage = ref('')
+const isGuestAtProjectLimit = computed(
+  () => !userStore.isLoggedIn && store.projects.length >= 1
+)
+const displayProfileLabel = computed(() => {
+  const nick = userStore.nickname?.trim()
+  if (nick) {
+    const lower = nick.toLowerCase()
+    return lower.length > 15 ? lower.slice(0, 15) + '…' : lower
+  }
+  const e = userStore.email
+  if (!e) return 'my profile'
+  return e.length > 15 ? e.slice(0, 12) + '…' : e
+})
+
+const isAdmin = computed(
+  () => userStore.isLoggedIn && userStore.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+)
+
+function openCreateProfileModal(promptMessage = '') {
+  createProfilePromptMessage.value = promptMessage
+  createProfileModalVisible.value = true
+}
 const router = useRouter()
 
 const isFileMenuOpen = ref(false)
@@ -434,14 +565,38 @@ const emitNew = () => {
 }
 
 const createNewProject = (format) => {
-  // Close menu immediately
   isFileMenuOpen.value = false
-  
-  // Use nextTick to ensure menu closes before navigation
+  if (userStore.isLoggedIn && userStore.isAtProjectLimit) {
+    alert('Free Plan Limit Reached. You can have up to 4 projects.')
+    return
+  }
+  if (isGuestAtProjectLimit.value) {
+    if (!FEATURES_PROFILE_UI_HIDDEN) {
+      openCreateProfileModal('Sign up for free to unlock 4 project slots!')
+    } else {
+      alert('You can have one local project. Sign in later to unlock more.')
+    }
+    return
+  }
   nextTick(() => {
-    // Create project and navigate
     const id = store.createProject(format)
+    const project = store.activeProject
+    if (project && userStore.isLoggedIn) {
+      const data = store.getProjectDataAsObject()
+      userStore.addProject({
+        id: project.id,
+        title: project.name,
+        roleAtCreation: userStore.role || 'writer',
+        lastModified: Date.now(),
+        content: data ? JSON.stringify(data) : '',
+      })
+    }
     store.saveToRecentProjects(id)
+    if (userStore.role) {
+      store.setUserRole(userStore.role)
+      if (userStore.role === 'writer') store.setWriterEditMode(true)
+      else store.setWriterEditMode(false)
+    }
     router.push(`/project/${id}`)
   })
 }
@@ -478,9 +633,45 @@ const submitAsxproCode = () => {
   }
 }
 
+const cloudSaveTitle = computed(() => {
+  if (!userStore.isLoggedIn) return 'Sign in to save to cloud'
+  if (!store.activeProject) return 'Open a project first'
+  if (userStore.isAtProjectLimit && !userStore.getProject(store.activeProject?.id)) return 'Cloud full (4 projects max)'
+  return 'Save current project to your cloud'
+})
+
 const saveAsFountain = () => {
   store.exportToFountain()
   isFileMenuOpen.value = false
+}
+
+const saveToCloud = async () => {
+  isFileMenuOpen.value = false
+  if (!userStore.isLoggedIn) {
+    if (!FEATURES_PROFILE_UI_HIDDEN) {
+      openCreateProfileModal('Sign in to save projects to your cloud.')
+    }
+    return
+  }
+  if (!store.activeProject) return
+  const data = store.getProjectDataAsObject()
+  const id = store.activeProject.id
+  const existing = userStore.getProject(id)
+  if (existing) {
+    await userStore.updateProject(id, {
+      title: store.activeProject.name,
+      lastModified: Date.now(),
+      content: data ? JSON.stringify(data) : existing.content,
+    })
+  } else if (userStore.canCreateProject) {
+    await userStore.addProject({
+      id,
+      title: store.activeProject.name,
+      roleAtCreation: userStore.role || 'writer',
+      lastModified: Date.now(),
+      content: data ? JSON.stringify(data) : '',
+    })
+  }
 }
 
 const openFindReplace = (mode) => {
@@ -510,7 +701,71 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* Previous styles remain... */
+/* Toolbar layout: ensure profile buttons (Create Profile / My Profile) stay visible */
+.toolbar-container {
+  width: 100%;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+}
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.toolbar-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0; /* prevent profile buttons from being pushed off */
+}
+
+.mode-toggle-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: white;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.mode-toggle-btn:hover {
+  border-color: #888;
+  color: #333;
+}
+.mode-toggle-btn.active {
+  background: #333;
+  border-color: #333;
+  color: white;
+}
+:global(body.dark-mode) .mode-toggle-btn {
+  background: #333;
+  border-color: #555;
+  color: #ccc;
+}
+:global(body.dark-mode) .mode-toggle-btn:hover {
+  border-color: #777;
+  color: #fff;
+}
+:global(body.dark-mode) .mode-toggle-btn.active {
+  background: #555;
+  border-color: #555;
+  color: white;
+}
 
 .undo-redo-group {
   display: flex;
@@ -537,6 +792,115 @@ onUnmounted(() => {
 :global(body.dark-mode) .icon-btn.active {
   background: rgba(255, 255, 255, 0.15);
   border-color: #666;
+}
+
+.header-create-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-right: 12px;
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.4), 0 0 14px rgba(25, 118, 210, 0.2);
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.header-create-profile-btn:hover {
+  box-shadow: 0 4px 12px rgba(25, 118, 210, 0.5), 0 0 20px rgba(25, 118, 210, 0.3);
+  transform: translateY(-1px);
+}
+
+.header-create-profile-btn .pi {
+  font-size: 14px;
+}
+
+.header-my-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #1976d2;
+  background: rgba(25, 118, 210, 0.1);
+  border: 1px solid rgba(25, 118, 210, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  margin-right: 12px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.header-my-profile-btn:hover {
+  background: rgba(25, 118, 210, 0.15);
+  border-color: rgba(25, 118, 210, 0.5);
+}
+
+.header-my-profile-btn .pi {
+  font-size: 14px;
+}
+
+.profile-label-one-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 10em;
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+:global(body.dark-mode) .header-create-profile-btn {
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.5), 0 0 14px rgba(25, 118, 210, 0.25);
+}
+
+:global(body.dark-mode) .header-my-profile-btn {
+  color: #64b5f6;
+  background: rgba(100, 181, 246, 0.12);
+  border-color: rgba(100, 181, 246, 0.35);
+}
+
+:global(body.dark-mode) .header-my-profile-btn:hover {
+  background: rgba(100, 181, 246, 0.2);
+  border-color: rgba(100, 181, 246, 0.5);
+}
+
+.header-admin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #2e7d32;
+  background: rgba(46, 125, 50, 0.12);
+  border: 1px solid rgba(46, 125, 50, 0.35);
+  border-radius: 8px;
+  cursor: pointer;
+  margin-right: 12px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.header-admin-btn:hover {
+  background: rgba(46, 125, 50, 0.2);
+  border-color: rgba(46, 125, 50, 0.5);
+}
+
+.header-admin-btn .pi {
+  font-size: 14px;
+}
+
+:global(body.dark-mode) .header-admin-btn {
+  color: #81c784;
+  background: rgba(129, 199, 132, 0.15);
+  border-color: rgba(129, 199, 132, 0.4);
+}
+
+:global(body.dark-mode) .header-admin-btn:hover {
+  background: rgba(129, 199, 132, 0.25);
+  border-color: rgba(129, 199, 132, 0.6);
 }
 
 .stats-display {
@@ -574,6 +938,24 @@ onUnmounted(() => {
   width: 16px;
   font-size: 14px;
   opacity: 0.7;
+}
+
+.dropdown-item-create-profile {
+  color: #1976d2 !important;
+  font-weight: 500;
+}
+
+.dropdown-item-create-profile:hover {
+  background: rgba(25, 118, 210, 0.1) !important;
+}
+
+.dropdown-item-admin {
+  color: #2e7d32 !important;
+  font-weight: 500;
+}
+
+.dropdown-item-admin:hover {
+  background: rgba(46, 125, 50, 0.1) !important;
 }
 
 .shortcut-hint {

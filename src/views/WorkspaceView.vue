@@ -1,7 +1,11 @@
 <!-- src/views/WorkspaceView.vue - ENHANCED -->
 <template>
   <div class="app-container" :class="{ 'focus-mode': focusMode }">
-    <AppHeader :isMobile="isMobile" @open-about="showAboutDialog = true" />
+    <AppHeader
+      :isMobile="isMobile"
+      @open-about="showAboutDialog = true"
+      @open-profile-sheet="showProfileSheet = true"
+    />
 
     <!-- Auto-save indicator -->
     <div v-if="lastSaved" class="autosave-indicator">
@@ -119,6 +123,25 @@
     <InteractiveTrainingOverlay :visible="store.showInteractiveTraining" @update:visible="store.showInteractiveTraining = $event" />
     <ShortcutsDialog />
 
+    <!-- Profile sheet (My Profile); hidden when FEATURES_PROFILE_UI_HIDDEN -->
+    <ProfileSheet
+      v-if="!FEATURES_PROFILE_UI_HIDDEN"
+      :visible="showProfileSheet"
+      :email="userStore.email || ''"
+      :role="userStore.role || ''"
+      :nickname="userStore.nickname"
+      :name="userStore.name"
+      :surname="userStore.surname"
+      :profile-photo="userStore.profilePhoto"
+      :projects="profileSheetProjects"
+      @close="showProfileSheet = false"
+      @logout="onProfileLogout"
+      @open-project="onProfileOpenProject"
+      @update-photo="userStore.setProfilePhoto"
+      @update-name="(v) => userStore.setName(v)"
+      @update-surname="(v) => userStore.setSurname(v)"
+    />
+
     <!-- About Dialog -->
     <div v-if="showAboutDialog" class="about-dialog-overlay" @click="showAboutDialog = false">
       <div class="about-dialog" @click.stop>
@@ -229,9 +252,14 @@ import TrainingDialog from '@/components/dialogs/TrainingDialog.vue'
 import TrainingChoiceDialog from '@/components/dialogs/TrainingChoiceDialog.vue'
 import InteractiveTrainingOverlay from '@/components/dialogs/InteractiveTrainingOverlay.vue'
 import ShortcutsDialog from '@/components/dialogs/ShortcutsDialog.vue'
+import ProfileSheet from '@/components/dialogs/ProfileSheet.vue'
+import { useUserStore } from '@/stores/user'
+import { FEATURES_PROFILE_UI_HIDDEN } from '@/config/features'
 // Character panel is now inside SideBar (Scenes | Characters tabs)
 
+const router = useRouter()
 const store = useProjectStore()
+const userStore = useUserStore()
 const editorRef = ref(null)
 const isMobile = ref(typeof window !== 'undefined' && window.innerWidth <= 1024)
 
@@ -251,6 +279,7 @@ const isBold = ref(false)
 const isItalic = ref(false)
 const isUnderline = ref(false)
 const showAboutDialog = ref(false)
+const showProfileSheet = ref(false)
 const showCursor = ref(true)
 const showContactDialog = ref(false)
 const isSendingEmail = ref(false)
@@ -259,6 +288,30 @@ const contactForm = ref({
   title: '',
   message: ''
 })
+
+// Profile sheet: projects list for display (id, title, lastModified)
+const profileSheetProjects = computed(() =>
+  (userStore.projects || []).map((p) => ({
+    id: p.id,
+    title: p.title || 'Untitled',
+    lastModified: p.lastModified,
+  }))
+)
+
+function onProfileLogout() {
+  userStore.logout()
+  showProfileSheet.value = false
+}
+
+function onProfileOpenProject(proj) {
+  if (!proj?.content) return
+  const id = store.importProjectFromJSON(proj.content, proj.title || 'Untitled')
+  if (id) {
+    store.saveToRecentProjects(id)
+    router.push(`/project/${id}`)
+  }
+  showProfileSheet.value = false
+}
 
 // Toggle formatting toolbar
 const toggleFormattingToolbar = () => {
@@ -334,6 +387,7 @@ const checkFormattingState = () => {
 
 // Handle selection changes
 const handleSelectionChange = () => {
+  if (window.getSelection().toString()) return // don't trigger state updates when user has selected text (e.g. after drag)
   if (showFormattingToolbar.value) {
     nextTick(() => {
       checkFormattingState()

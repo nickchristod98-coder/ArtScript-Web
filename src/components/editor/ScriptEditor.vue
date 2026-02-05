@@ -15,20 +15,20 @@
         :spellcheck="store.spellCheckEnabled"
         :lang="store.spellGrammarLanguage ? store.spellGrammarLanguage.split('-')[0] : 'en'"
       >
-        <!-- Single contenteditable: all lines in one region for cross-line selection -->
-        <div v-for="(line, index) in lines" :key="line.id" :data-line-index="index">
+        <!-- Single contenteditable: all lines in one region for cross-line selection. v-memo avoids re-render during selection (no top-level state change). -->
+        <div v-for="(line, index) in lines" :key="line.id" :data-line-index="index" v-memo="[line.id, line.type, index]">
           <!-- Page break indicator -->
           <div v-if="pageBreaks.has(index) && index > 0" class="page-break-indicator">
             <span class="page-break-line"></span>
           </div>
 
-          <div :class="['script-line', `line-${line.type}`]" :data-line-id="line.id">
+          <div :class="['script-line', 'block-element', `line-${line.type}`]" :data-line-id="line.id">
             <span v-if="line.type === 'scene-heading' && !isBookFormat" class="scene-number" contenteditable="false">
               {{ getSceneNumber(index) }}
             </span>
             <div
               :ref="(el) => setLineRef(el, index)"
-              class="line-content"
+              class="line-content block-element"
               :data-line-id="line.id"
               contenteditable="true"
               @mousedown="handleMouseDown($event, index)"
@@ -682,8 +682,10 @@ const handleEditorKeyDown = (event) => {
   }
 }
 
-// Single contenteditable: update currentLineIndex on focus
+// Single contenteditable: update currentLineIndex on focus (only on mouseUp, not during drag)
 const handleEditorFocusIn = () => {
+  if (isSelecting.value) return // disable block-index updates while mouse is down (prevents jitter)
+  if (window.getSelection().toString()) return // don't update when user has a selection (avoids re-render/focus stealing)
   const curr = getCurrentLineFromSelection()
   if (curr) currentLineIndex.value = curr.index
 }
@@ -1090,6 +1092,7 @@ const handlePaste = (event) => {
 
 // Click on main editor container: if user clicked empty space below content, focus last line and put caret at end
 const handleContainerClick = (event) => {
+  if (window.getSelection().toString()) return // don't run focus logic when user has selected text (e.g. after drag)
   if (!event.target.closest('.editor-wrapper') || event.target.closest('.line-content')) return
   const lastIdx = lines.value.length - 1
   if (lastIdx < 0) return
@@ -1103,6 +1106,7 @@ const handleContainerClick = (event) => {
 
 // Handle click on editor (outside lines)
 const handleEditorClick = (event) => {
+  if (window.getSelection().toString()) return // ignore click if it was part of a selection drag (ghost click fix)
   // Update current line index when clicking any line so Force buttons target the right line
   const scriptLine = event.target.closest?.('.script-line')
   const lineIndexEl = event.target.closest?.('[data-line-index]')
@@ -1379,59 +1383,68 @@ const getCursorOffsetInElement = (element, range) => {
   }
 }
 
-// Handle global mouse move for cross-line selection
+// Throttle: only run selection update once per frame to avoid lag/jitter during drag
+let globalMouseMoveRafId = null
+let lastGlobalMouseEvent = null
+
 const handleGlobalMouseMove = (event) => {
   if (!isSelecting.value) return
-  
-  // Find which line element the mouse is over (use elementsFromPoint so we get .line-content even under overlay)
-  let lineContent = event.target.closest('.line-content')
-  if (!lineContent && document.elementsFromPoint) {
-    const elements = document.elementsFromPoint(event.clientX, event.clientY)
-    lineContent = elements.find((el) => el.classList && el.classList.contains('line-content'))
-  }
-  if (!lineContent) return
-  
-  // Find the line index
-  const lineContainer = lineContent.closest('[data-line-index]')
-  if (!lineContainer) return
-  
-  const lineIndex = parseInt(lineContainer.getAttribute('data-line-index'))
-  if (isNaN(lineIndex)) return
-  
-  // If we're over a different line, update selection
-  if (selectionStart.value.lineIndex !== null && lineIndex !== selectionStart.value.lineIndex) {
-    const selection = window.getSelection()
-    const startLine = selectionStart.value.lineIndex
-    const endLine = lineIndex
-    
-    if (startLine !== endLine) {
-      const startElement = lineRefs.value[startLine]
-      const endElement = lineRefs.value[endLine]
-      
-      if (startElement && endElement) {
-        const endOffset = getOffsetAtPoint(endElement, event.clientX, event.clientY)
-        
-        const newRange = document.createRange()
-        const isForward = endLine > startLine
-        const actualStartLine = isForward ? startLine : endLine
-        const actualEndLine = isForward ? endLine : startLine
-        const actualStartEl = lineRefs.value[actualStartLine]
-        const actualEndEl = lineRefs.value[actualEndLine]
-        const actualStartOffset = isForward ? selectionStart.value.offset : endOffset
-        const actualEndOffset = isForward ? endOffset : selectionStart.value.offset
-        
-        const startPoint = getPointInElement(actualStartEl, actualStartOffset)
-        const endPoint = getPointInElement(actualEndEl, actualEndOffset)
-        
-        if (startPoint && endPoint) {
-          newRange.setStart(startPoint.node, startPoint.offset)
-          newRange.setEnd(endPoint.node, endPoint.offset)
-          selection.removeAllRanges()
-          selection.addRange(newRange)
+  lastGlobalMouseEvent = event
+  if (globalMouseMoveRafId != null) return
+  globalMouseMoveRafId = requestAnimationFrame(() => {
+    globalMouseMoveRafId = null
+    const e = lastGlobalMouseEvent
+    if (!e || !isSelecting.value) return
+
+    // Find which line element the mouse is over (use elementsFromPoint so we get .line-content even under overlay)
+    let lineContent = e.target.closest('.line-content')
+    if (!lineContent && document.elementsFromPoint) {
+      const elements = document.elementsFromPoint(e.clientX, e.clientY)
+      lineContent = elements.find((el) => el.classList && el.classList.contains('line-content'))
+    }
+    if (!lineContent) return
+
+    const lineContainer = lineContent.closest('[data-line-index]')
+    if (!lineContainer) return
+
+    const lineIndex = parseInt(lineContainer.getAttribute('data-line-index'))
+    if (isNaN(lineIndex)) return
+
+    // If we're over a different line, update selection (no state updates - only Selection API)
+    if (selectionStart.value.lineIndex !== null && lineIndex !== selectionStart.value.lineIndex) {
+      const selection = window.getSelection()
+      const startLine = selectionStart.value.lineIndex
+      const endLine = lineIndex
+
+      if (startLine !== endLine) {
+        const startElement = lineRefs.value[startLine]
+        const endElement = lineRefs.value[endLine]
+
+        if (startElement && endElement) {
+          const endOffset = getOffsetAtPoint(endElement, e.clientX, e.clientY)
+
+          const newRange = document.createRange()
+          const isForward = endLine > startLine
+          const actualStartLine = isForward ? startLine : endLine
+          const actualEndLine = isForward ? endLine : startLine
+          const actualStartEl = lineRefs.value[actualStartLine]
+          const actualEndEl = lineRefs.value[actualEndLine]
+          const actualStartOffset = isForward ? selectionStart.value.offset : endOffset
+          const actualEndOffset = isForward ? endOffset : selectionStart.value.offset
+
+          const startPoint = getPointInElement(actualStartEl, actualStartOffset)
+          const endPoint = getPointInElement(actualEndEl, actualEndOffset)
+
+          if (startPoint && endPoint) {
+            newRange.setStart(startPoint.node, startPoint.offset)
+            newRange.setEnd(endPoint.node, endPoint.offset)
+            selection.removeAllRanges()
+            selection.addRange(newRange)
+          }
         }
       }
     }
-  }
+  })
 }
 
 // Watch for external content changes (episode switching, undo, etc)
@@ -1991,6 +2004,10 @@ onMounted(() => {
 
 // Cleanup
 onUnmounted(() => {
+  if (globalMouseMoveRafId != null) {
+    cancelAnimationFrame(globalMouseMoveRafId)
+    globalMouseMoveRafId = null
+  }
   window.removeEventListener('resize', calculatePageBreaks)
   if (containerRef.value) {
     containerRef.value.removeEventListener('scroll', updateAnnotationRects)
@@ -2011,13 +2028,15 @@ onUnmounted(() => {
 <style scoped>
 .editor-container {
   flex: 1;
-  overflow: auto; /* vertical and horizontal scroll when viewport is smaller than page */
+  overflow: auto;
   background-color: #f0f0f0;
-  padding: 12px 8px; /* tight so edit page almost fills workspace */
+  padding: 12px 8px;
   display: flex;
   justify-content: center;
   position: relative;
   transition: all 0.3s ease;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .editor-container.full-page-view {
@@ -2032,6 +2051,8 @@ onUnmounted(() => {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   padding: 72px 90px 72px 72px; /* Standard margins */
   transition: all 0.3s ease;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Book format - A4 page styling */
@@ -2064,12 +2085,32 @@ onUnmounted(() => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.045);
 }
 
+/* No gaps between blocks: use padding only so mouse cannot fall through */
+/* contain: content limits layout recalc to the block (smoother native selection) */
 .script-line {
   position: relative;
   display: flex;
-  min-height: 14.4pt; /* 12pt * 1.2 */
+  min-height: 14.4pt;
   margin: 0;
   transition: all 0.3s ease;
+  contain: content;
+}
+
+.script-line .line-content {
+  display: block;
+  position: relative;
+  contain: content;
+}
+
+.block-element {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  pointer-events: all !important;
+}
+
+/* Professional selection highlight */
+.script-editor ::selection {
+  background: rgba(0, 120, 215, 0.3);
 }
 
 .line-content {
@@ -2077,25 +2118,27 @@ onUnmounted(() => {
   outline: none;
   white-space: pre-wrap;
   word-wrap: break-word;
-  min-height: 14.4pt; /* 12pt * 1.2 */
+  min-height: 14.4pt;
   cursor: text;
-  -webkit-user-select: text;
-  user-select: text;
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  pointer-events: all !important;
 }
 
 .line-content:empty:before {
-  content: '\200B'; /* Zero-width space to maintain height */
-  pointer-events: none; /* Allow clicks through the pseudo-element */
+  content: '\200B';
+  pointer-events: none;
 }
 
-/* Scene heading */
+/* Scene heading – padding only, no margin (no gaps) */
 .line-scene-heading {
-  margin-top: 24pt;
-  margin-bottom: 12pt;
+  padding-top: 24pt;
+  padding-bottom: 12pt;
+  margin: 0;
 }
 
 .line-scene-heading:first-child {
-  margin-top: 0;
+  padding-top: 0;
 }
 
 .line-scene-heading .line-content {
@@ -2122,15 +2165,18 @@ onUnmounted(() => {
   transition: all 0.3s ease;
 }
 
-/* Action */
+/* Action – padding only */
 .line-action {
-  margin-bottom: 12pt;
+  padding-bottom: 12pt;
+  margin: 0;
 }
 
 /* Character */
 .line-character {
   margin-left: 240px;
-  margin-top: 12pt;
+  padding-top: 12pt;
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
 .line-character .line-content {
@@ -2141,23 +2187,28 @@ onUnmounted(() => {
 .line-dialogue {
   margin-left: 156px;
   margin-right: 156px;
-  margin-bottom: 12pt;
+  padding-bottom: 12pt;
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
 /* Parenthetical */
 .line-parenthetical {
   margin-left: 204px;
   margin-right: 204px;
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
 .line-parenthetical .line-content {
   font-style: italic;
 }
 
-/* Transition */
+/* Transition – padding only */
 .line-transition {
-  margin-top: 12pt;
-  margin-bottom: 12pt;
+  padding-top: 12pt;
+  padding-bottom: 12pt;
+  margin: 0;
   justify-content: flex-end;
 }
 
@@ -2194,8 +2245,9 @@ onUnmounted(() => {
 
 /* Body text paragraphs */
 .line-body-text {
-  margin-bottom: 0;
-  text-indent: 1.5em; /* First line indent */
+  padding-bottom: 0;
+  margin: 0;
+  text-indent: 1.5em;
   text-align: justify;
 }
 
@@ -2203,17 +2255,18 @@ onUnmounted(() => {
   text-align: justify;
 }
 
-/* Chapter title */
+/* Chapter title – padding only */
 .line-chapter-title {
   page-break-before: always;
-  margin-top: 60px;
-  margin-bottom: 40px;
+  padding-top: 60px;
+  padding-bottom: 40px;
+  margin: 0;
   text-align: center;
 }
 
 .line-chapter-title:first-child {
   page-break-before: auto;
-  margin-top: 0;
+  padding-top: 0;
 }
 
 .line-chapter-title .line-content {

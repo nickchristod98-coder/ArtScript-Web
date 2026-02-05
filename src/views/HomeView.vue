@@ -4,6 +4,28 @@
     :class="{ 'title-slid': titleSlid }"
     :style="{ '--scale': scale }"
   >
+    <!-- Profile button: top-right (hidden when FEATURES_PROFILE_UI_HIDDEN) -->
+    <div v-if="!profileUiHidden" class="home-profile-bar">
+      <button
+        v-if="!userStore.isLoggedIn"
+        class="home-profile-btn home-profile-create"
+        @click="openCreateProfileModal()"
+        title="Create a free profile to unlock 4 project slots"
+      >
+        <i class="pi pi-user-plus"></i>
+        <span>Create Profile</span>
+      </button>
+      <button
+        v-else
+        class="home-profile-btn home-profile-my"
+        @click="showProfileSheet = true"
+        :title="userStore.email || 'My profile'"
+      >
+        <i class="pi pi-user"></i>
+        <span class="home-profile-label">{{ displayProfileLabel }}</span>
+      </button>
+    </div>
+
     <!-- Title: center initially; on desktop slides left, on mobile slides to top -->
     <div
       class="title-clip-wrapper"
@@ -99,18 +121,91 @@
         </div>
       </div>
     </div>
+
+    <!-- Modals (only when profile UI is enabled) -->
+    <template v-if="!profileUiHidden">
+      <CreateProfileModal
+        :visible="createProfileModalVisible"
+        :prompt-message="createProfilePromptMessage"
+        @success="createProfileModalVisible = false"
+        @close="createProfileModalVisible = false"
+      />
+      <ProfileSheet
+        :visible="showProfileSheet"
+        :email="userStore.email || ''"
+        :role="userStore.role || ''"
+        :nickname="userStore.nickname"
+        :name="userStore.name"
+        :surname="userStore.surname"
+        :profile-photo="userStore.profilePhoto"
+        :projects="profileSheetProjects"
+        @close="showProfileSheet = false"
+        @logout="onProfileLogout"
+        @open-project="onProfileOpenProject"
+        @update-photo="userStore.setProfilePhoto"
+      />
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
+import { useUserStore } from '@/stores/user'
+import { FEATURES_PROFILE_UI_HIDDEN } from '@/config/features'
+import CreateProfileModal from '@/components/dialogs/CreateProfileModal.vue'
+import ProfileSheet from '@/components/dialogs/ProfileSheet.vue'
 
+const profileUiHidden = FEATURES_PROFILE_UI_HIDDEN
 const router = useRouter()
 const store = useProjectStore()
+const userStore = useUserStore()
 const recentProjects = ref([])
 const fileInput = ref(null)
+const createProfileModalVisible = ref(false)
+const createProfilePromptMessage = ref('')
+const showProfileSheet = ref(false)
+
+const displayProfileLabel = computed(() => {
+  const nick = userStore.nickname?.trim()
+  if (nick) {
+    const lower = nick.toLowerCase()
+    return lower.length > 15 ? lower.slice(0, 15) + '…' : lower
+  }
+  const e = userStore.email
+  if (!e) return 'My profile'
+  return e.length > 15 ? e.slice(0, 12) + '…' : e
+})
+
+const profileSheetProjects = computed(() =>
+  (userStore.projects || []).map((p) => ({
+    id: p.id,
+    title: p.title || 'Untitled',
+    lastModified: p.lastModified,
+    content: p.content,
+  }))
+)
+
+function openCreateProfileModal(promptMessage = '') {
+  createProfilePromptMessage.value = promptMessage
+  createProfileModalVisible.value = true
+}
+
+function onProfileLogout() {
+  userStore.logout()
+  showProfileSheet.value = false
+}
+
+function onProfileOpenProject(proj) {
+  if (!proj?.content) return
+  const id = store.importProjectFromJSON(proj.content, proj.title || 'Untitled')
+  if (id) {
+    store.saveToRecentProjects(id)
+    router.push(`/project/${id}`)
+  }
+  showProfileSheet.value = false
+}
 
 const fullText = 'ArtScript Web'
 const displayedText = ref('')
@@ -218,6 +313,62 @@ const handleImport = async (e) => {
 </script>
 
 <style scoped>
+/* Profile bar: fixed top-right */
+.home-profile-bar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 1100;
+  padding: 16px 24px;
+  pointer-events: auto;
+}
+
+.home-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.home-profile-create {
+  color: #fff;
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.4);
+}
+
+.home-profile-create:hover {
+  box-shadow: 0 4px 12px rgba(25, 118, 210, 0.5);
+  transform: translateY(-1px);
+}
+
+.home-profile-my {
+  color: #1976d2;
+  background: rgba(25, 118, 210, 0.1);
+  border: 1px solid rgba(25, 118, 210, 0.3);
+}
+
+.home-profile-my:hover {
+  background: rgba(25, 118, 210, 0.15);
+  border-color: rgba(25, 118, 210, 0.5);
+}
+
+.home-profile-btn .pi {
+  font-size: 16px;
+}
+
+.home-profile-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 12em;
+}
+
 /* Unified scaling using CSS custom property */
 :deep(.launch-menu-overlay) {
   --scale: 1;
@@ -554,5 +705,20 @@ const handleImport = async (e) => {
       font-size: 35px !important;
     }
   }
+}
+
+:global(body.dark-mode) .home-profile-create {
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.5);
+}
+
+:global(body.dark-mode) .home-profile-my {
+  color: #64b5f6;
+  background: rgba(100, 181, 246, 0.12);
+  border-color: rgba(100, 181, 246, 0.35);
+}
+
+:global(body.dark-mode) .home-profile-my:hover {
+  background: rgba(100, 181, 246, 0.2);
+  border-color: rgba(100, 181, 246, 0.5);
 }
 </style>

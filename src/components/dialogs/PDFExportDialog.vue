@@ -39,6 +39,15 @@
         <small class="option-explanation">Notes (lines starting with "//") will appear in italic font if enabled</small>
       </div>
 
+      <div v-if="!FEATURES_ANNOTATION_DRAWING_HIDDEN" class="option-field">
+        <label>Include Hand-drawn Notes</label>
+        <div class="checkbox-wrapper">
+          <input type="checkbox" id="includeDrawings" v-model="includeDrawings" />
+          <label for="includeDrawings">Flatten script text and drawings into PDF</label>
+        </div>
+        <small class="option-explanation">Captures the script with any hand-drawn annotations from Draw Mode</small>
+      </div>
+
       <div class="option-field">
         <label>Language</label>
         <select v-model="language" class="w-full language-select">
@@ -49,7 +58,7 @@
 
       <div v-if="isExporting" class="export-progress">
         <div class="progress-spinner"></div>
-        <p>Generating PDF...</p>
+        <p>{{ includeDrawings ? 'Flattening canvas and text...' : 'Generating PDF...' }}</p>
       </div>
     </div>
 
@@ -67,12 +76,14 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useProjectStore } from '@/stores/project'
+import { FEATURES_ANNOTATION_DRAWING_HIDDEN } from '@/config/features'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import { jsPDF } from 'jspdf'
+import html2canvas from 'html2canvas'
 
 const props = defineProps(['visible'])
 const emit = defineEmits(['update:visible'])
@@ -82,8 +93,11 @@ const filename = ref('')
 const includeTitlePage = ref(true)
 const includeSceneNumbers = ref(true)
 const printNotes = ref(false)
+const includeDrawings = ref(false)
 const language = ref('en')
 const isExporting = ref(false)
+
+const STORAGE_KEY = (id) => `artscript-draw-${id || 'default'}`
 
 const visible = computed({
   get: () => props.visible,
@@ -92,10 +106,15 @@ const visible = computed({
 
 // Initialize filename from project name
 watch(
-  () => props.visible,
-  (newVal) => {
+  () => [props.visible, includeDrawings.value],
+  ([newVal]) => {
     if (newVal && store.activeProject) {
-      filename.value = store.activeProject.name.replace(/\s+/g, '_') + '.pdf'
+      if (includeDrawings.value) {
+        const date = new Date().toISOString().slice(0, 10)
+        filename.value = `Script_Annotated_${date}.pdf`
+      } else {
+        filename.value = store.activeProject.name.replace(/\s+/g, '_') + '.pdf'
+      }
     }
   },
 )
@@ -104,6 +123,7 @@ const resetOptions = () => {
   includeTitlePage.value = true
   includeSceneNumbers.value = true
   printNotes.value = false
+  includeDrawings.value = false
   language.value = 'en'
   isExporting.value = false
 }
@@ -114,99 +134,11 @@ const exportPDF = async () => {
   isExporting.value = true
 
   try {
-    // Create PDF in portrait letter size
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'pt',
-      format: 'letter', // 8.5" x 11" = 612 x 792 pts
-      compress: true,
-    })
-    
-    // Enable UTF-8 encoding for Greek characters
-    pdf.setLanguage(language.value === 'el' ? 'el' : 'en')
-
-    // Prevent extra space between letters (fixes sporadic spacing on some browsers/environments e.g. GitHub)
-    pdf.setCharSpace(0)
-
-    const pageWidth = 612
-    const pageHeight = 792
-    const leftMargin = 108 // 1.5 inches
-    const rightMargin = 72 // 1 inch
-    const topMargin = 40 // ~0.56 inches (reduced to allow 1 more line at top)
-    const bottomMargin = 5 // ~0.07 inches (minimal margin, allows 2 more lines at bottom)
-    const usableWidth = pageWidth - leftMargin - rightMargin
-
-    let yPosition = topMargin
-    let pageNumber = 1
-
-    // Set font
-    pdf.setFont('courier')
-
-    // Add title page if requested
-    if (includeTitlePage.value && store.activeProject.titlePage) {
-      addTitlePage(pdf, pageWidth, pageHeight)
-      pdf.addPage()
-      pageNumber++
-      pdf.setCharSpace(0) // Reset so first script line doesn't get wrong spacing
+    if (!FEATURES_ANNOTATION_DRAWING_HIDDEN && includeDrawings.value) {
+      await exportPDFWithDrawings()
+    } else {
+      await exportPDFStandard()
     }
-
-    // Process each line
-    let sceneNumber = 0
-
-    for (let i = 0; i < store.activeProject.lines.length; i++) {
-      const line = store.activeProject.lines[i]
-
-      // Calculate line spacing
-      const spacing = getLineSpacing(line.type)
-      const fontSize = 12
-      const lineHeight = fontSize * 1.2
-      const threeLinesHeight = lineHeight * 3 // Space for 3 additional lines
-
-      // Check if we need a new page (allow 3 more lines before breaking)
-      if (yPosition + spacing.before + lineHeight + spacing.after > pageHeight - bottomMargin - threeLinesHeight) {
-        pdf.addPage()
-        pageNumber++
-        yPosition = topMargin
-        pdf.setCharSpace(0) // Reset so first line on new page doesn't get wrong spacing
-
-        // Add page number to footer (except first page)
-        if (pageNumber > 1) {
-          pdf.setFontSize(10)
-          pdf.text(`${pageNumber}.`, pageWidth - rightMargin, pageHeight - bottomMargin + 20, {
-            align: 'right',
-            charSpace: 0,
-          })
-        }
-      }
-
-      // Add spacing before
-      yPosition += spacing.before
-
-      // Skip notes if printNotes is disabled
-      if (line.type === 'note' && !printNotes.value) {
-        continue // Skip this line entirely
-      }
-
-      // Increment scene number for headings
-      if (line.type === 'scene-heading') {
-        sceneNumber++
-      }
-
-      // Render the line
-      const rendered = renderLine(pdf, line, yPosition, leftMargin, rightMargin, usableWidth, sceneNumber)
-      
-      // If renderLine returns null (e.g., note when printNotes is false), skip spacing
-      if (rendered === null) {
-        continue
-      }
-
-      // Move to next line
-      yPosition += lineHeight + spacing.after
-    }
-
-    // Save the PDF
-    pdf.save(filename.value || 'script.pdf')
-
     visible.value = false
   } catch (error) {
     console.error('PDF Export Error:', error)
@@ -214,6 +146,237 @@ const exportPDF = async () => {
   } finally {
     isExporting.value = false
   }
+}
+
+async function exportPDFWithDrawings() {
+  const scriptEl = document.querySelector('.script-editor')
+  if (!scriptEl) {
+    throw new Error('Script editor not found. Please ensure the editor is visible.')
+  }
+
+  const containerEl = scriptEl.closest('.editor-container') || scriptEl.parentElement
+  const contentWidth = containerEl?.clientWidth || scriptEl.scrollWidth || 816
+  const contentHeight = scriptEl.scrollHeight || scriptEl.offsetHeight
+
+  if (contentHeight <= 0) {
+    throw new Error('No script content to export.')
+  }
+
+  const wrapper = document.createElement('div')
+  wrapper.style.cssText = `
+    position: fixed;
+    left: -99999px;
+    top: 0;
+    width: ${contentWidth}px;
+    height: ${contentHeight}px;
+    overflow: visible;
+    background: #fff;
+    z-index: 999999;
+  `
+  document.body.appendChild(wrapper)
+
+  const scriptClone = scriptEl.cloneNode(true)
+  scriptClone.style.width = contentWidth + 'px'
+  scriptClone.style.minHeight = contentHeight + 'px'
+  scriptClone.style.overflow = 'visible'
+  scriptClone.style.background = '#fff'
+  scriptClone.style.color = '#000'
+  wrapper.appendChild(scriptClone)
+
+  let drawCanvasEl = null
+  const strokes = loadDrawStrokes()
+  if (strokes.length > 0) {
+    const viewportW = Math.min(window.innerWidth, contentWidth)
+    const viewportH = Math.min(window.innerHeight, contentHeight)
+    drawCanvasEl = document.createElement('canvas')
+    drawCanvasEl.width = viewportW
+    drawCanvasEl.height = viewportH
+    drawCanvasEl.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: ${viewportW}px;
+      height: ${viewportH}px;
+      pointer-events: none;
+    `
+    const ctx = drawCanvasEl.getContext('2d')
+    if (ctx) {
+      strokes.forEach((s) => drawStrokeToCanvas(ctx, s, viewportW, viewportH))
+    }
+    wrapper.appendChild(drawCanvasEl)
+  }
+
+  const scale = 3
+  const canvas = await html2canvas(wrapper, {
+    scale,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: '#ffffff',
+    logging: false,
+  })
+
+  document.body.removeChild(wrapper)
+
+  const imgData = canvas.toDataURL('image/png')
+  const imgW = canvas.width
+  const imgH = canvas.height
+
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'letter',
+    compress: true,
+  })
+
+  const pageWidth = 612
+  const pageHeight = 792
+  const margin = 36
+  const usableW = pageWidth - margin * 2
+  const usableH = pageHeight - margin * 2
+
+  if (includeTitlePage.value && store.activeProject.titlePage) {
+    addTitlePage(pdf, pageWidth, pageHeight)
+    pdf.addPage()
+  }
+
+  const pdfImgW = usableW
+  const pdfImgH = imgH * (usableW / imgW)
+  const sliceH = (usableH * imgW) / usableW
+
+  let srcY = 0
+  let pageNum = 1
+  while (srcY < imgH) {
+    const srcSliceH = Math.min(sliceH, imgH - srcY)
+    const sliceCanvas = document.createElement('canvas')
+    sliceCanvas.width = imgW
+    sliceCanvas.height = Math.ceil(srcSliceH)
+    const sctx = sliceCanvas.getContext('2d')
+    sctx.drawImage(canvas, 0, srcY, imgW, srcSliceH, 0, 0, imgW, srcSliceH)
+    const sliceData = sliceCanvas.toDataURL('image/png')
+    const slicePdfH = (srcSliceH / imgH) * pdfImgH
+
+    pdf.addImage(sliceData, 'PNG', margin, margin, usableW, slicePdfH)
+    if (srcY + srcSliceH < imgH) {
+      pdf.addPage()
+      pageNum++
+    }
+    srcY += srcSliceH
+  }
+
+  const outName = filename.value || `Script_Annotated_${new Date().toISOString().slice(0, 10)}.pdf`
+  pdf.save(outName)
+}
+
+function loadDrawStrokes() {
+  const pid = store.activeProjectId
+  if (!pid || typeof localStorage === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY(pid))
+    if (!raw) return []
+    const data = JSON.parse(raw)
+    return data.strokes || []
+  } catch {
+    return []
+  }
+}
+
+function drawStrokeToCanvas(ctx, stroke, vw, vh) {
+  const points = stroke.points || []
+  if (points.length < 2) return
+  const color = stroke.color || '#e74c3c'
+  const width = stroke.width ?? 4
+  ctx.strokeStyle = color
+  ctx.lineWidth = width
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.shadowBlur = 2
+  ctx.shadowColor = color
+  ctx.beginPath()
+  ctx.moveTo(points[0].x, points[0].y)
+  for (let i = 1; i < points.length; i++) {
+    const p0 = points[i - 1]
+    const p1 = points[i]
+    const midX = (p0.x + p1.x) / 2
+    const midY = (p0.y + p1.y) / 2
+    ctx.quadraticCurveTo(p0.x, p0.y, midX, midY)
+  }
+  ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y)
+  ctx.stroke()
+}
+
+async function exportPDFStandard() {
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'letter',
+    compress: true,
+  })
+
+  pdf.setLanguage(language.value === 'el' ? 'el' : 'en')
+  pdf.setCharSpace(0)
+
+  const pageWidth = 612
+  const pageHeight = 792
+  const leftMargin = 108
+  const rightMargin = 72
+  const topMargin = 40
+  const bottomMargin = 5
+  const usableWidth = pageWidth - leftMargin - rightMargin
+
+  let yPosition = topMargin
+  let pageNumber = 1
+
+  pdf.setFont('courier')
+
+  if (includeTitlePage.value && store.activeProject.titlePage) {
+    addTitlePage(pdf, pageWidth, pageHeight)
+    pdf.addPage()
+    pageNumber++
+    pdf.setCharSpace(0)
+  }
+
+  let sceneNumber = 0
+
+  for (let i = 0; i < store.activeProject.lines.length; i++) {
+    const line = store.activeProject.lines[i]
+    const spacing = getLineSpacing(line.type)
+    const fontSize = 12
+    const lineHeight = fontSize * 1.2
+    const threeLinesHeight = lineHeight * 3
+
+    if (yPosition + spacing.before + lineHeight + spacing.after > pageHeight - bottomMargin - threeLinesHeight) {
+      pdf.addPage()
+      pageNumber++
+      yPosition = topMargin
+      pdf.setCharSpace(0)
+      if (pageNumber > 1) {
+        pdf.setFontSize(10)
+        pdf.text(`${pageNumber}.`, pageWidth - rightMargin, pageHeight - bottomMargin + 20, {
+          align: 'right',
+          charSpace: 0,
+        })
+      }
+    }
+
+    yPosition += spacing.before
+
+    if (line.type === 'note' && !printNotes.value) {
+      continue
+    }
+
+    if (line.type === 'scene-heading') {
+      sceneNumber++
+    }
+
+    const rendered = renderLine(pdf, line, yPosition, leftMargin, rightMargin, usableWidth, sceneNumber)
+    if (rendered === null) {
+      continue
+    }
+
+    yPosition += lineHeight + spacing.after
+  }
+
+  pdf.save(filename.value || 'script.pdf')
 }
 
 // Check if text contains Greek characters

@@ -1,9 +1,11 @@
 // src/composables/useAutoSave.js
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useProjectStore } from '@/stores/project'
+import { useUserStore } from '@/stores/user'
 
 export function useAutoSave(intervalMs = 30000) {
   const store = useProjectStore()
+  const userStore = useUserStore()
   const lastSaved = ref(null)
   const isSaving = ref(false)
   const autoSaveEnabled = ref(true)
@@ -25,6 +27,18 @@ export function useAutoSave(intervalMs = 30000) {
         data: JSON.stringify(store.activeProject),
         timestamp: Date.now(),
       })
+
+      // Persist to artscript_user_data when user is logged in and this project is in My Workspace
+      if (userStore.isLoggedIn && userStore.getProject(store.activeProject.id)) {
+        const data = store.getProjectDataAsObject()
+        if (data) {
+          userStore.updateProject(store.activeProject.id, {
+            title: store.activeProject.name,
+            lastModified: Date.now(),
+            content: JSON.stringify(data),
+          })
+        }
+      }
 
       lastSaved.value = new Date()
       console.log('Auto-saved at', lastSaved.value.toLocaleTimeString())

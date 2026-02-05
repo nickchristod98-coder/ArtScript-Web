@@ -8,11 +8,25 @@ import './assets/mobile.css'
 
 import App from './App.vue'
 import router from './router'
+import { isFirebaseConfigured, subscribeToAuth } from '@/services/firebase'
+import { useUserStore } from '@/stores/user'
 
 const app = createApp(App)
-
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
 app.use(router)
+
+// When Firebase is configured: sync store with auth state (persisted session + logout cleanup)
+if (isFirebaseConfigured()) {
+  subscribeToAuth((firebaseUser) => {
+    const userStore = useUserStore(pinia)
+    if (firebaseUser) {
+      userStore.syncFromFirebase(firebaseUser.uid, firebaseUser.email || '')
+    } else {
+      userStore.clearForLogout()
+    }
+  })
+}
 
 app.use(PrimeVue, {
     theme: {
